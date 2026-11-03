@@ -1,0 +1,81 @@
+{
+  "name": "dsh-proxy-switch",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Switchable web_fetch outbound path for DeepSeek Harness: a private fetch provider with forward/direct routing, an optional explicit global takeover, a sidebar switch, and warnings in web_fetch results.",
+  "main": "lib/index.js",
+  "author": "lightrivers",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lightrivers/dsh-proxy-switch.git"
+  },
+  "homepage": "https://github.com/lightrivers/dsh-proxy-switch#readme",
+  "bugs": {
+    "url": "https://github.com/lightrivers/dsh-proxy-switch/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "web-fetch",
+    "proxy",
+    "http-proxy"
+  ],
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-http-proxy": ">=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-launch-environment": ">=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-web-fetch-http": ">=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-web": ">=0.2.0-rc.1 <0.3.0-0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-http-proxy": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-launch-environment": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-web-fetch-http": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-web": {
+      "optional": true
+    }
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "locale",
+    "icon.svg",
+    "README.md",
+    "REVIEW.md",
+    "LICENSE",
+    "scripts"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "e2e": "node scripts/e2e-real.mjs",
+    "e2e:host": "node scripts/e2e-host.mjs",
+    "e2e:warning": "node scripts/e2e-web-fetch-warning.mjs"
+  }
+}

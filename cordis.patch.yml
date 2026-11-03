@@ -1,0 +1,6 @@
+# dsh-proxy-switch bundle patch: one Host row. Its Client half is declared by
+# package.json `dsh.client` and loaded from the `./client` export.
+- insert:
+    - id: dsh-proxy-switch
+      name: dsh-proxy-switch
+      config: {}

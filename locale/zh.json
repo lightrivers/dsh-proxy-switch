@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "代理开关",
+    "description": "可切换的 web_fetch 出站通道：默认为 web_fetch 注册独立 provider 与私有本地通道，不改全局 dispatcher、进程代理变量或子进程环境；可显式切换为全局接管。工作区左侧一键切换，web_fetch 结果附带状态警告。"
+  }
+}
