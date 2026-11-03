@@ -1,5 +1,7 @@
 # dsh-proxy-switch
 
+[![test](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml/badge.svg)](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml)
+
 DeepSeek Harness 的**可切换 web_fetch 出站通道**：侧栏开关决定 web_fetch 走「上游 HTTP 代理」还是「自行解析并直连」，状态与警告同时出现在侧栏和 `web_fetch` 结果中。
 
 当前版本 **0.3.0**。设计取舍、复审证据与未验证边界见 [REVIEW.md](./REVIEW.md)。
