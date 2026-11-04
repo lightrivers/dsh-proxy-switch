@@ -6,8 +6,8 @@
     .node{fill:#fff;stroke:#d5dae3;stroke-width:1.2}
     .ntext{font-size:13px;fill:#0f1115}
     .small{font-size:12px;fill:#81858c}
-    .bad{stroke:#ec1313;stroke-width:2;stroke-dasharray:6 5}
-    .good{stroke:#4176e6;stroke-width:2;stroke-dasharray:7 5;animation:flow .6s linear infinite}
+    .bad{fill:none;stroke:#ec1313;stroke-width:2;stroke-dasharray:6 5}
+    .good{fill:none;stroke:#4176e6;stroke-width:2;stroke-dasharray:7 5;animation:flow .6s linear infinite}
     .err{font-size:12.5px;fill:#ec1313}
     .ok{font-size:12.5px;fill:#16a34a}
     @keyframes flow{to{stroke-dashoffset:-12}}

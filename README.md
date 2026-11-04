@@ -1,6 +1,12 @@
 # 代理开关 · dsh-proxy-switch
 
 [![test](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml/badge.svg)](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml)
+[![version](https://img.shields.io/github/package-json/v/lightrivers/dsh-proxy-switch?label=version)](package.json)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![DeepSeek Harness 0.2.x](https://img.shields.io/badge/DeepSeek%20Harness-0.2.x-4176e6.svg)](#环境要求)
+[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#环境要求)
+
+中文 · [English](README.en.md)
 
 **开着 Clash、Surge、v2rayN 这类代理软件时，DeepSeek Harness 的 `web_fetch` 抓不了网页？装上这个插件就好了。**
 
@@ -13,7 +19,7 @@
   </picture>
 </p>
 
-[English](#english) · [安装](#安装) · [怎么用](#怎么用) · [看到提示怎么办](#看到提示怎么办) · [常见问题](#常见问题) · [工作原理](#工作原理)
+[环境要求](#环境要求) · [安装](#安装) · [怎么用](#怎么用) · [看到提示怎么办](#看到提示怎么办) · [常见问题](#常见问题) · [工作原理](#工作原理)
 
 ---
 
@@ -29,6 +35,15 @@
 <p align="center"><img src="docs/images/why.svg" width="720" alt="没装插件时，fake-IP 被安全检查拒绝；装了插件后，代理开着走代理，关着直连"></p>
 
 原因在于：TUN 模式的代理会把所有域名解析成 `198.18.0.0/15` 段的"假地址"。`web_fetch` 直连时的安全检查不允许访问内网地址，于是把请求拒绝了；而一旦把代理写死，代理关掉后又什么都连不上。这个插件给 `web_fetch` 单独开了一条可以切换的线路，**默认不影响模型对话和其它功能**。
+
+## 环境要求
+
+| 项目 | 要求 |
+|---|---|
+| DeepSeek Harness | 桌面版 0.2.x |
+| 系统 | macOS（已完整验证）；Windows、Linux（代码已支持，尚未在真机上完整验证） |
+| 代理 | 本机的 HTTP 代理或"混合端口"（Clash / mihomo / Clash Verge、Surge、v2rayN 等都有）。不支持 SOCKS、PAC |
+| 许可证 | [MIT](LICENSE) |
 
 ## 安装
 
@@ -89,27 +104,34 @@
 
 ## 常见问题
 
-**会影响模型对话、搜索或者其它工具吗？**
+### 会影响模型对话、搜索或者其它工具吗？
+
 默认不会。作用范围是「仅 web_fetch」，插件不修改全局网络设置、进程环境变量和子进程环境。只有你主动选择「所有工具」时，其它模块才会跟着走这条线路。
 
-**我的代理软件端口不是 7890，能找到吗？**
+### 我的代理软件端口不是 7890，能找到吗？
+
 能。插件优先读取**系统代理设置**（macOS 的网络设置、Windows 的 Internet 选项、Linux 的 GNOME/KDE 代理设置），所以无论什么端口，只要代理软件打开了「系统代理」就能找到。找不到时会再读取 DSH 启动时的 `HTTPS_PROXY` 等环境变量，最后扫描常见端口（7890、7897、6152、1087、10809 等）。每个候选地址都会实际握手验证，确认它真的是 HTTP 代理才会使用。
 
-**自动模式会不会切错？**
+### 自动模式会不会切错？
+
 每次 `web_fetch` 之前，插件会先在本机测一下代理端口（只需约 1 毫秒），所以代理刚关掉也不会走错线路。代理找不到时一律直连，直连的安全检查照常进行。
 
-**代理需要账号密码怎么办？**
+### 代理需要账号密码怎么办？
+
 自动检测会发现它要求登录，并提示你手动填写 `http://user:pass@地址:端口`。密码只保存在本机，权限为 600，界面、日志和提示里一律显示为 `***`。
 
-**走代理时，模型能借插件访问我的内网或本机服务吗？**
+### 走代理时，模型能借插件访问我的内网或本机服务吗？
+
 插件会尽量挡住，但不能保证百分之百。走代理时，网址最终由代理软件去解析和连接，插件看不到它实际连到了哪里。所以插件在交给代理之前先在本机检查一遍：`localhost`、`.local`、`.lan` 这类本地名字直接拒绝，在本机解析出内网地址的也拒绝。但开着 TUN 时本机只能解析到假地址（`198.18.x.x`），判断不了真实目标，只能放行。这和以前在 `~/.dsh/.env` 里手写 `HTTP_PROXY` 时的情况一样；直连则有完整的检查。
 
 反过来，如果你的 DNS 被污染，把正常网站解析成了内网地址，走代理时这个网站会被误拒，提示里会写「转发模式拒绝请求」。打开代理软件的 TUN（或换一个可信的 DNS）就能恢复。
 
-**支持 SOCKS、HTTPS 或 PAC 代理吗？**
+### 支持 SOCKS、HTTPS 或 PAC 代理吗？
+
 目前只支持 HTTP 代理。好在几乎所有代理软件都提供 HTTP 端口或"混合端口"，用那个端口就行。
 
-**支持 Windows、Linux 吗？**
+### 支持 Windows、Linux 吗？
+
 代码按三个平台编写，自动检测会分别读取各自的系统代理设置，但目前只在 macOS 上完整验证过。欢迎反馈。
 
 ## 工作原理
@@ -175,25 +197,11 @@ node scripts/e2e-web-fetch-warning.mjs     # web_fetch 结果附带的警告文�
 2. 删除 `~/.dsh/storages/dsh-proxy-switch/`。
 3. 如果需要恢复写死的代理，把 `HTTP_PROXY` / `HTTPS_PROXY` 写回 `~/.dsh/.env` 并重启。
 
----
+## 更新记录
 
-## English
-
-**DeepSeek Harness `web_fetch` failing with `non-public IP address` while Clash / Surge / v2rayN runs in TUN (fake-IP) mode? This plugin fixes it.**
-
-It finds your local HTTP proxy automatically (system proxy settings on macOS/Windows/Linux, then `HTTPS_PROXY`-style variables, then common ports, each verified with a real `CONNECT` handshake). In **Auto** mode, `web_fetch` goes through the proxy while the proxy runs and goes direct when it does not. Model calls and other tools are untouched by default.
-
-<p align="center"><img src="docs/images/panel-en.png" width="440" alt="Proxy Switch panel in English"></p>
-
-- **Install:** clone the repo, ask DSH to run `plugin_manager action=install_bundle target=<absolute path>`, then fully restart DSH. Remove any hard-coded `HTTP_PROXY` from `~/.dsh/.env`.
-- **Use:** click the small Proxy Switch pill at the bottom of the sidebar. Choose **Auto** (recommended), **Proxy**, or **Direct**. A tag on the panel shows whether the switch applies to *web_fetch only* or *all tools*.
-- **When something is off,** the route diagram marks the spot (✕ broken, 🔒 proxy wants a login, ❗ unstable), and the panel shows one sentence and a button that fixes it, such as *Switch to Auto* or *Enter the address*.
-- **Button location:** sidebar footer, chat header, or hidden. The full panel is always available under *Plugins → Proxy Switch*.
-- HTTP upstreams only (use your proxy app's HTTP or mixed port). Fully verified on macOS so far.
-- **Security note:** direct mode checks every DNS answer. In proxy mode the proxy resolves the name, so the plugin can only refuse local names and names that already resolve to private addresses on this machine; under fake-IP it cannot see the real target. This is a mitigation, not a guarantee.
-
-Design, security boundaries, and test coverage: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **0.4.0**：新增「自动」模式和代理自动检测（系统代理、环境变量、常用端口）；重做面板和侧栏小按钮，线路图直接标出问题在哪；按对抗性安全审查加固（私有通道令牌、控制接口 Host 校验、走代理时的本地目标检查、HTTPS 握手超时等，详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)）。
+- **0.3.0**：`web_fetch` 改用插件自己的私有通道，不再改全局网络设置。
 
 ## License
 
-MIT
+[MIT](LICENSE) © lightrivers
