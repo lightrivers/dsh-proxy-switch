@@ -66,8 +66,29 @@ test("normalizeState keeps valid fields and repairs invalid ones", () => {
 
 test("normalizeState applies configuration defaults for a fresh install", () => {
   const fresh = normalizeState(void 0, { listenPort: 8123 });
-  assert.equal(fresh.state.mode, "direct");
+  assert.equal(fresh.state.mode, "auto");
+  assert.equal(fresh.state.upstreamSource, "auto");
   assert.equal(fresh.state.listenPort, 8123);
+});
+
+test("normalizeState keeps auto mode and migrates a v0.3 upstream to a source", () => {
+  assert.equal(normalizeState({ mode: "auto" }).state.mode, "auto");
+  // v0.3 never wrote upstreamSource: the old built-in default stays detectable…
+  const untouched = normalizeState({ mode: "forward", upstream: DEFAULT_STATE.upstream });
+  assert.equal(untouched.state.upstreamSource, "auto");
+  // …while an address the user typed is kept as manual.
+  const typed = normalizeState({ mode: "forward", upstream: "http://127.0.0.1:7890" });
+  assert.equal(typed.state.upstreamSource, "manual");
+  assert.deepEqual(typed.notes, []);
+
+  const explicit = normalizeState({ upstream: "http://127.0.0.1:7890", upstreamSource: "auto" });
+  assert.equal(explicit.state.upstreamSource, "auto");
+  // A Loader-config upstream counts as a decision, the built-in default does not.
+  assert.equal(normalizeState(void 0, { upstream: "http://127.0.0.1:7890" }).state.upstreamSource, "manual");
+  assert.equal(normalizeState(void 0, { upstream: DEFAULT_STATE.upstream }).state.upstreamSource, "auto");
+  const bogus = normalizeState({ upstreamSource: "magic" });
+  assert.equal(bogus.state.upstreamSource, "auto");
+  assert.equal(bogus.notes.length, 1);
 });
 
 test("state survives a save/load round-trip", async (t) => {

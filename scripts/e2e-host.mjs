@@ -14,7 +14,9 @@
  *  - R3: a child `curl` with an original proxy + NO_PROXY keeps its bypass;
  *  - R6: concurrent mode/scope and listenPort/upstream updates both survive;
  *  - R7: a corrupt state file never echoes its credential;
- *  - R8: an IPv6 loopback upstream is probed and used.
+ *  - R8: an IPv6 loopback upstream is probed and used;
+ *  - F (v0.4): auto mode follows the probe, detection adopts an upstream, a typed upstream
+ *    is never overwritten, and a fake-IP refusal in auto names the missing port.
  *
  * Usage:
  *   DSH_RUNTIME_MODULES=/path/to/runtime/dsh/node_modules node scripts/e2e-host.mjs
@@ -512,12 +514,92 @@ async function main() {
       listenPort: 17801,
       upstream: "http://127.0.0.1:1082",
       probeIntervalMs: 3000,
+      detectUpstream: async () => ({ found: null, tried: [] }),
     });
     const snapshot = controls.snapshot();
     const text = JSON.stringify(snapshot);
     check("R7 corrupt state note does not echo the secret", !text.includes("REVIEW-SECRET"), snapshot.notes.join(" | "));
     check("R7 corrupt upstream falls back to the configured default", snapshot.upstream === "http://127.0.0.1:1082");
     await fiber.dispose();
+  }
+
+  // ---------- Phase F: v0.4 auto mode + upstream detection ----------
+  {
+    const upstream = createUpstream();
+    const upstreamPort = await start(upstream.server);
+    const target = httpTarget("TARGET");
+    const targetPort = await start(target);
+    const detectedUrl = `http://127.0.0.1:${upstreamPort}`;
+    let detectCalls = 0;
+    process.env.DSH_HOME = join(root, "home-f");
+    const { ctx, fiber, controls } = await createContext(runtime, pluginModule, {
+      scope: "web_fetch_only",
+      listenPort: await freePort(),
+      probeIntervalMs: 3000,
+      // No upstream in the config: a fresh install starts auto/auto and must detect.
+      detectUpstream: async ({ excludePorts }) => {
+        detectCalls += 1;
+        return {
+          found: excludePorts.includes(upstreamPort) ? null : { url: detectedUrl, source: "system", reader: "scutil", needsAuth: false, latencyMs: 1 },
+          tried: [{ url: detectedUrl, source: "system", kind: "proxy", error: null }],
+        };
+      },
+      resolveTarget: async (host) =>
+        host === "198.18.0.9"
+          ? { ok: false, code: "PROXY_SWITCH_FAKE_IP", message: "fake-IP 198.18.0.9" }
+          : { ok: true, address: "127.0.0.1", addresses: [{ address: "127.0.0.1", family: 4 }] },
+    }, { initialFetchProvider: "http", waitMs: 400 });
+    let snap = controls.snapshot();
+    check("F fresh install starts in auto/auto", snap.mode === "auto" && snap.upstreamSource === "auto", `${snap.mode}/${snap.upstreamSource}`);
+    check("F detection adopted the found upstream", snap.upstream === detectedUrl && snap.detection.status === "found", `${snap.upstream} ${snap.detection.status}`);
+    check("F auto forwards while the upstream answers", snap.effectiveMode === "forward" && snap.probe.reachable === true);
+
+    const viaProxy = await ctx.waterfall(
+      "tools/execute",
+      { name: "web_fetch", arguments: { url: `http://8.8.8.8:${targetPort}/auto-fwd` } },
+      async () => ctx.web.fetch({ url: `http://8.8.8.8:${targetPort}/auto-fwd` }).then((r) => ({ content: [{ type: "text", text: r.body.content }] })),
+    );
+    check("F auto web_fetch went through the upstream", /UPSTREAM:/.test(viaProxy.content[0].text) && viaProxy.content.length === 1);
+
+    await stop(upstream.server);
+    await wait(1100);
+    const callsBefore = detectCalls;
+    const viaDirect = await ctx.waterfall(
+      "tools/execute",
+      { name: "web_fetch", arguments: { url: `http://8.8.8.8:${targetPort}/auto-direct` } },
+      async () => ctx.web.fetch({ url: `http://8.8.8.8:${targetPort}/auto-direct` }).then((r) => ({ content: [{ type: "text", text: r.body.content }] })),
+    );
+    snap = controls.snapshot();
+    check("F auto re-probes before a fetch and goes direct", /TARGET:\/auto-direct/.test(viaDirect.content[0].text) && snap.effectiveMode === "direct");
+    check("F no mismatch warning in auto", snap.warning === null);
+    check("F a fresh detection is not repeated on every failed probe", detectCalls === callsBefore, `${callsBefore} -> ${detectCalls}`);
+
+    const fake = await ctx.waterfall(
+      "tools/execute",
+      { name: "web_fetch", arguments: { url: "http://198.18.0.9/" } },
+      async () => ({ content: [{ type: "text", text: "NEXT" }] }),
+    );
+    check("F auto fake-IP refusal names the missing port", fake.isError === true && /HTTP 端口/.test(fake.content.at(-1).text), fake.content.at(-1).text.trim().slice(0, 40));
+    await wait(60);
+    // The startup detection is younger than the fake-IP interval, so this one is skipped…
+    check("F fake-IP re-detection is rate-limited", detectCalls === callsBefore, `${callsBefore} -> ${detectCalls}`);
+    // …while an explicit request always runs.
+    await controls.detectNow();
+    check("F an explicit detection always runs", detectCalls === callsBefore + 1, `${callsBefore} -> ${detectCalls}`);
+
+    await controls.updateSettings({ upstream: "http://127.0.0.1:9" });
+    snap = controls.snapshot();
+    check("F a typed upstream switches the source to manual", snap.upstreamSource === "manual");
+    const manualCalls = detectCalls;
+    await controls.setMode("forward");
+    await wait(60);
+    check("F manual upstream is never re-detected", detectCalls === manualCalls && controls.snapshot().upstream === "http://127.0.0.1:9");
+    await controls.updateSettings({ upstreamSource: "auto" });
+    await wait(60);
+    check("F switching back to auto detects again", detectCalls > manualCalls);
+
+    await fiber.dispose();
+    await stop(target);
   }
 
   await rm(root, { recursive: true, force: true });

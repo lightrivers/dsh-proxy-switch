@@ -1,5 +1,7 @@
 # dsh-proxy-switch v0.3.0 — 审查与验收记录
 
+> 这是 v0.3.0 的历史记录。v0.4（自动模式、上游检测、新界面）的架构、风险清单和测试覆盖见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
 > 当前版本 **0.3.0**；DSH 运行时 `0.2.1-rc.5`；Node v22.22.2；macOS 26.5.2。
 > 本文件是唯一的审查/验收记录；实现说明见 [README.md](./README.md)。
 

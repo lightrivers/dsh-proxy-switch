@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Proxy Switch / 代理开关",
-    "description": "Switchable web_fetch outbound channel: by default a private provider and private local channel, with no change to the global dispatcher, process proxy variables, or child environments; an explicit global takeover mode is also available."
+    "title": "Proxy Switch",
+    "description": "Makes web_fetch use your proxy while it runs and go direct when it does not: finds the local proxy automatically (system proxy settings or common ports) and only takes over web_fetch by default. One-click switch in the sidebar, with a fix button whenever the route and the proxy disagree."
   }
 }

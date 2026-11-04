@@ -2,8 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  WARNING_AUTO_PROXY_NOT_FOUND,
   WARNING_DIRECT_WITH_UPSTREAM,
   WARNING_FORWARD_WITHOUT_UPSTREAM,
+  effectiveModeOf,
   warningFor,
   warningParagraph,
 } from "../lib/messages.js";
@@ -65,4 +67,21 @@ test("the warning paragraph names the scope", () => {
   const text = warningParagraph(warning, { mode: "direct", scope: "web_fetch_only", upstream: "http://127.0.0.1:1082" });
   assert.match(text, /策略范围 \/ Scope: web_fetch_only/);
   assert.match(text, /web_fetch 严格/);
+});
+
+test("auto follows the probe and never forwards on an unknown probe", () => {
+  assert.equal(effectiveModeOf("auto", true), "forward");
+  assert.equal(effectiveModeOf("auto", false), "direct");
+  assert.equal(effectiveModeOf("auto", null), "direct");
+  assert.equal(effectiveModeOf("forward", false), "forward");
+  assert.equal(effectiveModeOf("direct", true), "direct");
+});
+
+test("auto has no mismatch warning, only the fake-IP-without-port one", () => {
+  for (const reachable of [true, false, null]) assert.equal(warningFor({ mode: "auto", reachable }), null);
+  const warning = warningFor({ mode: "auto", reachable: false, fakeIpSeen: true, scope: "web_fetch_only" });
+  assert.equal(warning.code, WARNING_AUTO_PROXY_NOT_FOUND);
+  assert.match(warning.zh, /fake-IP/);
+  assert.match(warning.actionZh, /手动填写/);
+  assert.equal(warningFor({ mode: "auto", reachable: true, fakeIpSeen: true }), null);
 });

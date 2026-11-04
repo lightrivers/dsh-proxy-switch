@@ -1,192 +1,191 @@
-# dsh-proxy-switch
+# 代理开关 · dsh-proxy-switch
 
 [![test](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml/badge.svg)](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml)
 
-DeepSeek Harness 的**可切换 web_fetch 出站通道**：侧栏开关决定 web_fetch 走「上游 HTTP 代理」还是「自行解析并直连」，状态与警告同时出现在侧栏和 `web_fetch` 结果中。
+**开着 Clash、Surge、v2rayN 这类代理软件时，DeepSeek Harness 的 `web_fetch` 抓不了网页？装上这个插件就好了。**
 
-当前版本 **0.3.0**。设计取舍、复审证据与未验证边界见 [REVIEW.md](./REVIEW.md)。
+它会自动找到你电脑上的代理，代理开着就让 `web_fetch` 走代理，关着就直连。不用改 `.env`，也不用记端口号。
 
----
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel-dark.png">
+    <img src="docs/images/panel-light.png" width="440" alt="代理开关面板：正在走代理，自动选择，代理客户端在运行">
+  </picture>
+</p>
 
-## 为什么需要它
-
-`dsh-web-fetch-http` 的直连路径要求 DNS 结果全是公有地址；TUN + fake-IP 代理客户端会把域名解析到 `198.18.0.0/15`，于是 `web_fetch` 报 `non-public IP address`。代理路径又会跳过它自己的校验。过去只能把 `HTTP_PROXY` 写死进 `.env`，代理客户端一关，模型请求也跟着失败。
-
-本插件把 web_fetch 的传输做成独立、可切换、可观察的一层，默认**不影响其它模块**。
-
----
-
-## 架构
-
-```
-ctx.web (WebRuntime)
-  ├─ "http"               原始 provider（未接管/禁用时使用）
-  └─ "dsh-proxy-switch"    本插件注册，web_fetch 默认使用
-        │ requestOnce()
-        ▼
-  私有 loopback 通道 127.0.0.1:<随机端口>   （strict-only，isolateConnections）
-        ├─ forward: CONNECT / 绝对 URI → 上游 HTTP 代理
-        └─ direct : 字节级 DNS + NAT64/SSRF 校验 → 直连目标
-
-[仅 scope=global] 第二个 forwarder + 进程级代理策略
-  127.0.0.1:<listenPort> ← 其它模块 / 子进程（保留原 NO_PROXY）
-```
-
-- **默认 `web_fetch_only`**：只注册 provider，并把 `web.config.fetchProvider` 指向它；不安装全局策略、不写 `process.env`、不碰其它模块的连接池。
-- **显式 `global`**：额外接管其它模块的出站路径，`NO_PROXY` 保持用户原值。
-- provider 继承运行时 `HttpFetchProvider`，只覆盖 `requestOnce`；重定向、超时/取消、字节/字符上限、内容类型、解码仍用上游实现。
-- 私有通道 `isolateConnections`：HTTP 不复用 keep-alive，HTTPS 每请求新建 CONNECT，切换 mode/upstream 后不可能借用旧隧道。
-
-接管的是 `ctx.web.fetch` 这个 seam，而不是按工具名过滤：任何调用 `ctx.web.fetch` 的模块都会跟随本插件；模型请求、`ctx.web.search` 和不经过该 seam 的工具不受影响。
+[English](#english) · [安装](#安装) · [怎么用](#怎么用) · [看到提示怎么办](#看到提示怎么办) · [常见问题](#常见问题) · [工作原理](#工作原理)
 
 ---
 
-## 安装与升级
+## 它解决什么问题
 
-先取得源码：
+如果你遇到过下面任何一种情况，这个插件就是为你写的：
 
-```bash
-git clone https://github.com/lightrivers/dsh-proxy-switch.git ~/src/dsh-proxy-switch
+- `web_fetch` 报错 **`non-public IP address`**，或者提示网站被解析到 **`198.18.x.x`**；
+- 代理软件开了 **TUN / 增强模式 / fake-IP**，DeepSeek 一抓网页就失败；
+- 为了让 `web_fetch` 能用，把 `HTTP_PROXY` 写死进了 `~/.dsh/.env`，结果代理一关，**连模型对话都断了**；
+- 每次开关代理都要手动改配置。
+
+<p align="center"><img src="docs/images/why.svg" width="720" alt="没装插件时，fake-IP 被安全检查拒绝；装了插件后，代理开着走代理，关着直连"></p>
+
+原因在于：TUN 模式的代理会把所有域名解析成 `198.18.0.0/15` 段的"假地址"。`web_fetch` 直连时的安全检查不允许访问内网地址，于是把请求拒绝了；而一旦把代理写死，代理关掉后又什么都连不上。这个插件给 `web_fetch` 单独开了一条可以切换的线路，**默认不影响模型对话和其它功能**。
+
+## 安装
+
+1. 下载源码：
+   ```bash
+   git clone https://github.com/lightrivers/dsh-proxy-switch.git ~/dsh-proxy-switch
+   ```
+2. 在 DeepSeek Harness 里对模型说：「用 plugin_manager 安装插件 `~/dsh-proxy-switch`」（它会执行 `plugin_manager action=install_bundle target=<绝对路径>`）。
+3. **完全退出并重新打开 DSH。** 侧栏底部会多出一行「代理开关」，右边显示当前线路和状态圆点（如「走代理 ●」）。
+
+> 以前在 `~/.dsh/.env` 里写过 `HTTP_PROXY` / `HTTPS_PROXY` 的话，先删掉它们再重启。否则插件关掉后，DSH 还会回到写死的代理。
+
+升级：在源码目录 `git pull`，再执行一次第 2、3 步。
+
+## 怎么用
+
+**大多数人什么都不用做。** 装好后默认是「自动」：插件读取系统代理设置，找到你的代理端口，代理在运行时 `web_fetch` 走代理，代理关掉后自动改为直连。
+
+<p align="center"><img src="docs/images/demo.gif" width="420" alt="演示：切到直连后出现提示，点「改为自动」恢复；关掉代理后自动改为直连"></p>
+
+点侧栏底部的「代理开关」一行打开面板：
+
+| 位置 | 说明 |
+|---|---|
+| **最上面一大块** | 现在走的是哪条线路。线条在流动表示通畅；变红并断开表示连不上。右上角的小标签是作用范围：「仅 web_fetch」或「所有工具」。 |
+| **自动 / 走代理 / 直连** | 选线路。「自动」适合绝大多数人；另外两个会把线路固定住，不管代理开没开。 |
+| **代理那一行** | 找到的代理地址、怎么找到的（系统代理、环境变量或端口扫描），以及延迟。右边的按钮可以重新检测。 |
+| **更多设置** | 手动填写代理地址、作用范围、按钮放在哪里。 |
+
+「代理开关」一行右侧的圆点：🟢 正常，🟠 需要处理，🔴 出现问题，⚪ 正在检测。
+
+### 按钮放哪里
+
+左侧栏底部可能挤着好几个插件按钮。在「更多设置 → 按钮位置」里可以选：
+
+- **侧栏底部**（默认）
+- **对话顶栏**：适合侧栏常收起的人。Windows 上侧栏收起时，底部这一行会被隐藏。
+- **不显示**：所有设置都还在「**插件 → 代理开关**」页面里，随时可以回来改。
+
+<p align="center"><img src="docs/images/plugin-page.png" width="520" alt="插件页面里的完整设置：代理地址、作用范围、按钮位置"></p>
+
+## 看到提示怎么办
+
+线路和代理状态对不上时，面板会给出一句话说明和一个修复按钮，点按钮就行。
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/mismatch.png" alt="固定直连但代理开着：点「改为自动」"></td>
+<td width="50%"><img src="docs/images/not-found.png" alt="代理开着但找不到端口：点「手动填写地址」"></td>
+</tr>
+<tr>
+<td><b>代理客户端正在运行</b>：你固定了直连，但代理开着，部分网站会被拒绝。点「改为自动」。</td>
+<td><b>找不到代理的端口</b>：代理似乎在运行，但它没有设置系统代理，端口也不常见。点「手动填写地址」，只填端口号（例如 <code>7890</code>）就行。</td>
+</tr>
+</table>
+
+其它提示也一样，按按钮上写的做即可。`web_fetch` 的结果里也会附上同样的提示，模型能看到并告诉你。
+
+## 常见问题
+
+**会影响模型对话、搜索或者其它工具吗？**
+默认不会。作用范围是「仅 web_fetch」，插件不修改全局网络设置、进程环境变量和子进程环境。只有你主动选择「所有工具」时，其它模块才会跟着走这条线路。
+
+**我的代理软件端口不是 7890，能找到吗？**
+能。插件优先读取**系统代理设置**（macOS 的网络设置、Windows 的 Internet 选项、Linux 的 GNOME/KDE 代理设置），所以无论什么端口，只要代理软件打开了「系统代理」就能找到。找不到时会再读取 DSH 启动时的 `HTTPS_PROXY` 等环境变量，最后扫描常见端口（7890、7897、6152、1087、10809 等）。每个候选地址都会实际握手验证，确认它真的是 HTTP 代理才会使用。
+
+**自动模式会不会切错？**
+每次 `web_fetch` 之前，插件会先在本机测一下代理端口（只需约 1 毫秒），所以代理刚关掉也不会走错线路。代理找不到时一律直连，直连的安全检查照常进行。
+
+**代理需要账号密码怎么办？**
+自动检测会发现它要求登录，并提示你手动填写 `http://user:pass@地址:端口`。密码只保存在本机，权限为 600，界面、日志和提示里一律显示为 `***`。
+
+**支持 SOCKS、HTTPS 或 PAC 代理吗？**
+目前只支持 HTTP 代理。好在几乎所有代理软件都提供 HTTP 端口或"混合端口"，用那个端口就行。
+
+**支持 Windows、Linux 吗？**
+代码按三个平台编写，自动检测会分别读取各自的系统代理设置，但目前只在 macOS 上完整验证过。欢迎反馈。
+
+## 工作原理
+
+```
+web_fetch ──▶ 插件自己的 web_fetch 提供者 ──▶ 本机私有通道（随机端口，只监听 127.0.0.1）
+                                                ├─ 走代理：CONNECT / 绝对 URI ──▶ 你的 HTTP 代理
+                                                └─ 直连：  解析 DNS + 安全检查 ──▶ 目标网站
 ```
 
-再由桌面端内置 `plugin_manager` 安装（CLI 对 desktop profile 会拒绝）：
+- 插件只替换 `web_fetch` 的"发请求"这一步。重定向、超时、大小限制、编码处理仍然沿用 DSH 原来的实现。
+- 直连时，整组 DNS 结果都必须是公网地址：fake-IP、内网、回环、NAT64 内嵌私网地址等一律拒绝。
+- 每个请求都使用新连接，切换线路后不会沿用旧的代理隧道。
+- 设计细节、安全边界和测试覆盖见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。历史审查记录见 [REVIEW.md](REVIEW.md)。
 
-```
-plugin_manager action=install_bundle target=/绝对路径/dsh-proxy-switch
-```
+### 配置与状态文件
 
-升级时先 `git pull`，再重新执行 `install_bundle`。
-
-安装后刷新页面（Client bundle 随页面加载）；升级 Host 代码需要重启 DSH。
-
-依赖必须写在 `peerDependencies`，不能写进 `dependencies`，否则会装出第二份 `@deepseek-ai/dsh-http-proxy`，策略改在副本上而不生效：
-
-```json
-"peerDependencies": {
-  "@deepseek-ai/dsh-http-proxy": ">=0.2.0-rc.1 <0.3.0-0",
-  "@deepseek-ai/dsh-launch-environment": ">=0.2.0-rc.1 <0.3.0-0",
-  "@deepseek-ai/dsh-web": ">=0.2.0-rc.1 <0.3.0-0",
-  "@deepseek-ai/dsh-web-fetch-http": ">=0.2.0-rc.1 <0.3.0-0"
-}
-```
-
-### 从写死 `.env` 迁移
-
-1. 删除 `~/.dsh/.env` 里的 `HTTP_PROXY` / `HTTPS_PROXY`（否则禁用插件后回退到旧代理）。
-2. 安装插件，完全退出并重启 DSH。
-3. 打开开关确认 `forward`，抓一次 `https://example.com`。
-4. 关闭代理客户端、切 `direct`，再抓一次应成功。
-5. 代理客户端重新打开但保持 `direct`：web_fetch 应被拒绝并给出 fake-IP 文本，模型请求仍继续。
-
-首次安装默认 `direct + web_fetch_only`。
-
----
-
-## 配置
-
-侧栏面板「设置」可改，也可编辑 `state.json` 后重启：
+面板里能改的设置都保存在 `~/.dsh/storages/dsh-proxy-switch/state.json`（目录权限 0700、文件权限 0600）。一般不需要手动编辑。
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `mode` | `direct` | `forward` / `direct` |
-| `scope` | `web_fetch_only` | `web_fetch_only` / `global` |
-| `listenPort` | `7899` | 仅 global 使用；1024–65535，只绑 `127.0.0.1` |
-| `upstream` | `http://127.0.0.1:1082` | 只接受 `http://host:port`，可带 `user:pass@` |
-| `probeIntervalMs` | `15000` | 3000–600000 ms |
+| `mode` | `auto` | `auto`（跟随检测结果）/ `forward`（固定走代理）/ `direct`（固定直连） |
+| `upstreamSource` | `auto` | `auto` 时代理地址由检测结果更新；`manual` 时只使用你填写的地址 |
+| `upstream` | `http://127.0.0.1:1082` | 代理地址，只接受 `http://host:port`，可以带 `user:pass@` |
+| `scope` | `web_fetch_only` | `web_fetch_only`（仅 web_fetch）/ `global`（所有工具） |
+| `listenPort` | `7899` | 仅「所有工具」模式使用的本地端口 |
+| `probeIntervalMs` | `15000` | 后台检测代理的间隔（3000–600000 毫秒），界面里不提供修改 |
 
-- web_fetch 私有通道使用随机 loopback 端口，不占 `listenPort`。
-- 所有状态修改通过同一个串行队列提交，并发请求不会互相覆盖。
-- `state.json` 目录 0700、文件 0600；API/UI/警告/日志中的凭据脱敏为 `user:***@host`。
+按钮位置是浏览器端的偏好，保存在 `localStorage` 的 `dsh-proxy-switch.placement` 里。
 
----
+从 0.3 升级时，原来的线路选择会保留。原来的代理地址如果是默认值，会改为自动检测；如果是你填写过的地址，会保持手动。
 
-## 与 web_fetch / UI 的交互
-
-`tools/execute` 在 direct 模式下先做一次 precheck：fake-IP/非公网目标直接返回 `isError` + 双语原因，再追加 `[dsh-proxy-switch]` 警告段落。provider 内部还会再校验一次。
-
-状态 API（Client 半体使用）：
+### 状态接口
 
 ```
 GET  /dsh-proxy-switch/state
-POST /dsh-proxy-switch/mode      { "mode": "forward" | "direct" }
-POST /dsh-proxy-switch/settings  { "scope"?, "upstream"?, "listenPort"?, "probeIntervalMs"? }
-POST /dsh-proxy-switch/probe
+POST /dsh-proxy-switch/mode      { "mode": "auto" | "forward" | "direct" }
+POST /dsh-proxy-switch/settings  { "scope"?, "upstream"?, "upstreamSource"?, "listenPort"?, "probeIntervalMs"? }
+POST /dsh-proxy-switch/probe     立即检测一次当前代理
+POST /dsh-proxy-switch/detect    立即重新查找代理
 ```
 
-`state` 主要字段：`mode`、`scope`、`listenPort`、`listening`、`webFetchPort`、`webFetchListening`、`upstream`、`upstreamHasCredentials`、`probeIntervalMs`、`provider {id,status,error}`、`policyInstalled`、`policySelfCheck`、`probe {reachable,latencyMs,error}`、`warning`、`stats {requests,failures,rejections,webFetchRequests,globalRequests,lastHost}`。
+接口只接受本机请求，并校验 `Origin`、`Sec-Fetch-Site` 和 `Content-Type: application/json`。`state` 里的主要字段有：`mode`、`effectiveMode`（当前实际走的线路）、`upstream`（已脱敏）、`upstreamSource`、`detection`、`probe`、`warning`、`provider`、`scope`、`stats`。
 
-Client 半体注册在 `sidebar.footer.action`，id `dsh-proxy-switch`，order 40；所有文案/样式在 `client.js`。
-
----
-
-## 安全
-
-- `direct` 模式整组解析结果必须全为公网；任一非公网即拒绝。
-- 字节级 IP 解析：IPv4-mapped（含展开形式）、IPv4-translated（拒绝）、IPv4-compatible、RFC 7050 NAT64 前缀 + RFC 6052 内嵌 IPv4 检查。
-- 固定网段包含 `198.18.0.0/15`、RFC1918、loopback、link-local、CGNAT、文档段、`100:0:0:1::/64`、`2001::/23` 等；策略差异见 [REVIEW.md](./REVIEW.md)。
-- CONNECT authority 严格校验，畸形输入返回 400 + `PROXY_SWITCH_INVALID_AUTHORITY`。
-- 上游 Basic 认证只发往上游握手，不进入隧道、不发给目标；407 有明确机器码。
-- 无法解析的上游显示为 `<invalid-upstream>`，不回显原始字符串。
-- 默认不改 `NO_PROXY`；global 模式保留用户原列表。
-- 状态路由只接受 loopback，校验 `Origin`、`application/json`、`Sec-Fetch-Site`。
-- 日志/统计只记 host、状态码、engine、耗时，不记 URL/正文。
-
----
-
-## 测试
+## 开发与测试
 
 ```bash
-npm test                               # 69 项单元测试
-node scripts/e2e-real.mjs              # 可选：真实 1082 上游；不可用时自动 SKIP
-node scripts/e2e-web-fetch-warning.mjs # web_fetch 文本的 5 个组合
-
-# Host 级集成：需要指向 DSH 运行时包闭包（包含 @deepseek-ai/cordis、dsh-web、
-# dsh-web-fetch-http、dsh-http-proxy、dsh-launch-environment、undici、ipaddr.js 等）
-DSH_RUNTIME_MODULES=/path/to/runtime/dsh/node_modules node scripts/e2e-host.mjs
+npm test                                   # 单元测试（含 Client 渲染测试）
+DSH_RUNTIME_MODULES=/path/to/dsh/node_modules node scripts/e2e-host.mjs   # 真实 Cordis/WebRuntime 集成测试
+node scripts/e2e-real.mjs                  # 可选：经过本机真实 HTTP 代理
+node scripts/e2e-web-fetch-warning.mjs     # web_fetch 结果附带的警告文本
 ```
 
-最近一次结果：单元 69/69、Host 级 40/40；真实上游 e2e 在当前环境通过 CONNECT/直连/死上游，fake-IP 用例按 DNS 自动 SKIP。Host 级覆盖 provider 接管、R1 隧道不复用、R3 子进程 NO_PROXY、R6 并发设置、R8 IPv6 上游；不是 Electron App 测试。
+`DSH_RUNTIME_MODULES` 指向 DSH 运行时的 `node_modules`。可以从安装包里解出来：`npx @electron/asar extract "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" out`，然后使用 `out/dsh/node_modules`。
 
----
+依赖必须写在 `peerDependencies` 里，不能写进 `dependencies`，否则会装出第二份 `@deepseek-ai/dsh-http-proxy`，「所有工具」模式会静默失效。
 
-## 文件结构
+## 卸载
 
-```
-dsh-proxy-switch/
-├─ package.json
-├─ cordis.patch.yml
-├─ icon.svg
-├─ locale/{zh,en}.json
-├─ lib/
-│  ├─ index.js             # 状态、scope、provider 接管、全局策略、队列、Web 路由、teardown
-│  ├─ fetch-provider.js    # 继承 HttpFetchProvider，只覆盖 requestOnce
-│  ├─ proxy-client.js      # 私有通道客户端（HTTP absolute-URI / HTTPS CONNECT+TLS）
-│  ├─ forwarder.js         # strict-only 本地转发器
-│  ├─ net-guard.js         # IP 解析、mapped/translated、NAT64、SSRF
-│  ├─ probe.js             # 上游 TCP 探测
-│  ├─ state.js             # 原子写、0600/0700、脱敏
-│  ├─ messages.js          # 警告状态机
-│  └─ host-utils.js        # 策略环境、precheck、警告追加
-├─ client.js               # sidebar 开关与面板
-├─ test/*.test.mjs
-└─ scripts/{e2e-host,e2e-real,e2e-web-fetch-warning}.mjs
-```
-
----
-
-## 已知限制
-
-- provider 接管依赖 `web.config.fetchProvider` 的 volatile ref 与 `HttpFetchProvider.requestOnce` 可覆盖性；运行时大版本变化需适配。
-- 桌面 bundle 默认 `fetchProvider: "http"`，插件会覆盖内置 `http`；其它显式 provider id 不会被覆盖，状态显示 `blocked`。
-- 默认 `web_fetch_only` 不接管全局；想控制所有出站要显式切 `global`。
-- 只在 macOS 验证；Windows/Linux、长时间压力、真实第三方认证代理、HTTP/2 未验证。
-- `state.json` 保留明文凭据（转发器需要），靠 0600 + 目录 0700 + 全链路脱敏保护。
-- 多 DSH 进程共享 `state.json` 无跨进程锁。
-
----
-
-## 回滚
-
-1. `plugin_manager remove_bundle dsh-proxy-switch`，或从 profile `package.json` 删除依赖后重启。
+1. 对模型说「用 plugin_manager 卸载 dsh-proxy-switch」（`remove_bundle`），然后重启 DSH。
 2. 删除 `~/.dsh/storages/dsh-proxy-switch/`。
-3. 需要恢复“经 1082 代理”时，在 `~/.dsh/.env` 写回 `HTTP_PROXY`/`HTTPS_PROXY` 并重启。
+3. 如果需要恢复写死的代理，把 `HTTP_PROXY` / `HTTPS_PROXY` 写回 `~/.dsh/.env` 并重启。
+
+---
+
+## English
+
+**DeepSeek Harness `web_fetch` failing with `non-public IP address` while Clash / Surge / v2rayN runs in TUN (fake-IP) mode? This plugin fixes it.**
+
+It finds your local HTTP proxy automatically (system proxy settings on macOS/Windows/Linux, then `HTTPS_PROXY`-style variables, then common ports, each verified with a real `CONNECT` handshake). In **Auto** mode, `web_fetch` goes through the proxy while the proxy runs and goes direct when it does not. Model calls and other tools are untouched by default.
+
+<p align="center"><img src="docs/images/panel-en.png" width="440" alt="Proxy Switch panel in English"></p>
+
+- **Install:** clone the repo, ask DSH to run `plugin_manager action=install_bundle target=<absolute path>`, then fully restart DSH. Remove any hard-coded `HTTP_PROXY` from `~/.dsh/.env`.
+- **Use:** click the Proxy Switch row at the bottom of the sidebar. Choose **Auto** (recommended), **Proxy**, or **Direct**. A tag on the panel shows whether the switch applies to *web_fetch only* or *all tools*.
+- **When something is off,** the panel shows one sentence and a button that fixes it, such as *Switch to Auto* or *Enter the address*.
+- **Button location:** sidebar row, chat header pill, or hidden. The full panel is always available under *Plugins → Proxy Switch*.
+- HTTP upstreams only (use your proxy app's HTTP or mixed port). Fully verified on macOS so far.
+
+Design, security boundaries, and test coverage: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## License
+
+MIT

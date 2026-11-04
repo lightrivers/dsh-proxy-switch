@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="330" viewBox="0 0 820 330" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <style>
+    .card{fill:#fff;stroke:#e3e7ee}
+    .label{font-size:13px;fill:#61666b}
+    .title{font-size:15px;font-weight:600;fill:#0f1115}
+    .node{fill:#fff;stroke:#d5dae3;stroke-width:1.2}
+    .ntext{font-size:13px;fill:#0f1115}
+    .small{font-size:12px;fill:#81858c}
+    .bad{stroke:#ec1313;stroke-width:2;stroke-dasharray:6 5}
+    .good{stroke:#4176e6;stroke-width:2;stroke-dasharray:7 5;animation:flow .6s linear infinite}
+    .err{font-size:12.5px;fill:#ec1313}
+    .ok{font-size:12.5px;fill:#16a34a}
+    @keyframes flow{to{stroke-dashoffset:-12}}
+    @media (prefers-reduced-motion:reduce){.good{animation:none}}
+  </style>
+  <rect class="card" x="1" y="1" width="818" height="328" rx="16"/>
+
+  <text class="title" x="28" y="40">没装插件：代理开着时，web_fetch 被拒绝</text>
+  <rect class="node" x="28" y="58" width="128" height="40" rx="10"/><text class="ntext" x="92" y="83" text-anchor="middle">web_fetch</text>
+  <line class="bad" x1="160" y1="78" x2="248" y2="78"/>
+  <rect class="node" x="252" y="58" width="176" height="40" rx="10"/><text class="ntext" x="340" y="83" text-anchor="middle">DNS：198.18.0.23</text>
+  <text class="small" x="340" y="116" text-anchor="middle">TUN 代理返回的 fake-IP</text>
+  <line class="bad" x1="432" y1="78" x2="520" y2="78"/>
+  <text class="err" x="530" y="74">✕ non-public IP address</text>
+  <text class="small" x="530" y="94">直连安全检查拒绝了“内网地址”</text>
+
+  <line x1="28" y1="146" x2="792" y2="146" stroke="#eef0f4"/>
+
+  <text class="title" x="28" y="182">装了插件：自动选对线路</text>
+  <rect class="node" x="28" y="202" width="128" height="40" rx="10"/><text class="ntext" x="92" y="227" text-anchor="middle">web_fetch</text>
+  <rect class="node" x="200" y="202" width="128" height="40" rx="10" stroke="#4176e6"/><text class="ntext" x="264" y="227" text-anchor="middle">代理开着</text>
+  <rect class="node" x="200" y="262" width="128" height="40" rx="10"/><text class="ntext" x="264" y="287" text-anchor="middle">代理关着</text>
+  <path class="good" d="M160 222 H196"/>
+  <path class="good" d="M160 222 C180 222 180 282 196 282"/>
+  <line class="good" x1="332" y1="222" x2="430" y2="222"/>
+  <rect class="node" x="434" y="202" width="150" height="40" rx="10" stroke="#4176e6"/><text class="ntext" x="509" y="227" text-anchor="middle">经代理访问</text>
+  <line class="good" x1="332" y1="282" x2="430" y2="282"/>
+  <rect class="node" x="434" y="262" width="150" height="40" rx="10"/><text class="ntext" x="509" y="287" text-anchor="middle">直接访问</text>
+  <text class="ok" x="604" y="227">✓ 抓取成功</text>
+  <text class="ok" x="604" y="287">✓ 抓取成功</text>
+  <text class="small" x="604" y="247">端口自动找到</text>
+  <text class="small" x="604" y="307">安全检查照常进行</text>
+</svg>
