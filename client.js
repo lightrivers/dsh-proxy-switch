@@ -484,7 +484,7 @@ window.__ModuleLoader__.load({
     async function post(path, body) {
       const response = await fetch(`/dsh-proxy-switch${path}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-dsh-proxy-switch-request': '1' },
         body: JSON.stringify(body ?? {}),
       })
       const data = await response.json().catch(() => ({}))
@@ -653,6 +653,11 @@ window.__ModuleLoader__.load({
       return state?.mode === 'forward' ? 'forward' : 'direct'
     }
 
+    /** A stored upstream that wants a login: detection says so, or a real request got 407. */
+    function needsAuth(state) {
+      return (state?.detection?.needsAuth === true || state?.probe?.needsAuth === true) && state?.upstreamSource === 'auto'
+    }
+
     /** One health tone for the pill dot and the hero: ok / warn / error / idle. */
     function toneOf(state, error) {
       if (error !== null) return 'error'
@@ -662,7 +667,7 @@ window.__ModuleLoader__.load({
       if (state.scope === 'global' && state.listenError) return 'error'
       if (policyBroken(state)) return 'error'
       if (state.warning) return state.warning.severity === 'error' ? 'error' : 'warn'
-      if (state.detection?.needsAuth === true && state.upstreamSource === 'auto') return 'warn'
+      if (needsAuth(state)) return 'warn'
       if (provider === 'pending' || state.probe?.reachable === null || state.probe?.reachable === void 0) return 'idle'
       return 'ok'
     }
@@ -682,12 +687,12 @@ window.__ModuleLoader__.load({
       if (provider === 'pending') return { kind: 'scan', wires: ['scan', 'scan'] }
       if (route === 'forward') {
         if (state.probe?.reachable === false) return { kind: 'down', wires: ['stuck', 'dead'] }
-        if (state.detection?.needsAuth === true && state.upstreamSource === 'auto') return { kind: 'lock', wires: ['stuck', 'dead'] }
+        if (needsAuth(state)) return { kind: 'lock', wires: ['stuck', 'dead'] }
       }
       const shaky =
         state.warning?.code === 'DIRECT_WITH_UPSTREAM' ||
         state.warning?.code === 'AUTO_PROXY_NOT_FOUND' ||
-        (route === 'direct' && state.detection?.needsAuth === true && state.upstreamSource === 'auto') ||
+        (route === 'direct' && needsAuth(state)) ||
         Boolean(state.lastError)
       if (shaky) return { kind: 'shaky', wires: ['shaky', 'shaky'] }
       return { kind: 'flow', wires: ['flow', 'flow'] }
@@ -726,7 +731,7 @@ window.__ModuleLoader__.load({
       if (code === 'AUTO_PROXY_NOT_FOUND') {
         return { key: 'auto-missing', tone: 'warn', title: t.autoNotFoundTitle, body: t.autoNotFoundBody, actions: [['manual', t.enterManually, true], ['detect', t.findAgain, false]] }
       }
-      if (state.detection?.needsAuth === true && state.upstreamSource === 'auto') {
+      if (needsAuth(state)) {
         return { key: 'auth', tone: 'warn', title: t.needsAuthTitle, body: t.needsAuthBody, actions: [['manual', t.enterManually, true]] }
       }
       if (provider.status === 'pending') return { key: 'pending', tone: 'idle', title: t.pendingTitle, body: null, actions: [] }

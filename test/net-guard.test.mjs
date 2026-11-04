@@ -279,3 +279,32 @@ test("formatAuthority brackets IPv6 and keeps IPv4/domains bare", () => {
   assert.equal(formatAuthority("::1", 443), "[::1]:443");
   assert.equal(formatAuthority("[2606:4700:4700::1111]", 443), "[2606:4700:4700::1111]:443");
 });
+
+test("F14: a slow resolver is bounded by timeoutMs, and the late answer is dropped", async () => {
+  let lateResolve;
+  const neverEnding = () => new Promise((resolve) => {
+    lateResolve = resolve;
+  });
+  const startedAt = Date.now();
+  const verdict = await resolveDirectTarget("slow.example", { lookupFn: neverEnding, timeoutMs: 60 });
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.code, "PROXY_SWITCH_DNS_TIMEOUT");
+  assert.ok(Date.now() - startedAt < 1_000, "the budget must settle the call");
+  // The lookup cannot be cancelled by the DNS layer, so it eventually answers; that answer
+  // must not change anything for a caller that already gave up.
+  lateResolve([{ address: "93.184.216.34", family: 4 }]);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(verdict.ok, false);
+});
+
+test("F14: an aborted signal stops waiting for resolution", async () => {
+  const controller = new AbortController();
+  const verdictPromise = resolveDirectTarget("slow.example", {
+    lookupFn: () => new Promise(() => {}),
+    signal: controller.signal,
+  });
+  setTimeout(() => controller.abort(), 20);
+  const verdict = await verdictPromise;
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.code, "WEB_ABORTED");
+});

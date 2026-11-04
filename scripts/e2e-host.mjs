@@ -31,7 +31,7 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
-import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { connect, createServer as createNetServer } from "node:net";
 import { once } from "node:events";
@@ -521,7 +521,7 @@ async function main() {
     const post = async (path, body) => {
       const response = await fetch(`${origin}/dsh-proxy-switch${path}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-dsh-proxy-switch-request": "1" },
         body: JSON.stringify(body ?? {}),
       });
       return { status: response.status, body: await response.json() };
@@ -738,6 +738,276 @@ async function main() {
 
     await fiber.dispose();
     await stop(target);
+  }
+
+  // ---------- Phase G: lifecycle, control-route guards, probe identity (F3/F11/F12/F15/A5) ----------
+  {
+    async function makeRoute() {
+      const holder = { handler: null };
+      const server = createHttpServer((request, response) => {
+        if (holder.handler === null) {
+          response.writeHead(503);
+          response.end();
+          return;
+        }
+        void holder.handler(request, response);
+      });
+      const port = await start(server);
+      return { server, port, origin: `http://127.0.0.1:${port}`, holder };
+    }
+    function rawRequest(port, { method = "GET", path = "/", headers = {}, body = null } = {}) {
+      return new Promise((resolve, reject) => {
+        const request = httpRequest({ host: "127.0.0.1", port, method, path, headers }, (response) => {
+          const chunks = [];
+          response.on("data", (chunk) => chunks.push(chunk));
+          response.on("end", () => resolve({ status: response.statusCode, text: Buffer.concat(chunks).toString("utf8") }));
+        });
+        request.on("error", reject);
+        request.end(body ?? void 0);
+      });
+    }
+    const fastResolver = async () => ({ ok: true, address: "127.0.0.1", addresses: [{ address: "127.0.0.1", family: 4 }] });
+
+    // --- F3/F15/A5 on one instance ---
+    {
+      const route = await makeRoute();
+      process.env.DSH_HOME = join(root, "home-g1");
+      let detectCalls = 0;
+      const { ctx, fiber, controls, state } = await createContext(runtime, pluginModule, {
+        mode: "forward",
+        scope: "web_fetch_only",
+        listenPort: await freePort(),
+        upstream: "http://127.0.0.1:9",
+        probeIntervalMs: 3000,
+        resolveTarget: fastResolver,
+        detectUpstream: async () => {
+          detectCalls += 1;
+          return { found: null, tried: [] };
+        },
+      }, { origin: route.origin, waitMs: 150 });
+      route.holder.handler = state.handler;
+      await wait(40);
+
+      const goodHost = `127.0.0.1:${route.port}`;
+      const stateOk = await rawRequest(route.port, { path: "/dsh-proxy-switch/state", headers: { host: goodHost } });
+      check("F3 a same-host GET still reads state", stateOk.status === 200, String(stateOk.status));
+
+      const rebound = await rawRequest(route.port, {
+        path: "/dsh-proxy-switch/state",
+        headers: { host: `evil.example:${route.port}`, "sec-fetch-site": "same-origin" },
+      });
+      check("F3 a DNS-rebinding Host is refused", rebound.status === 403, `${rebound.status} ${rebound.text.trim().slice(0, 40)}`);
+
+      const noHeader = await rawRequest(route.port, {
+        method: "POST",
+        path: "/dsh-proxy-switch/mode",
+        headers: { host: goodHost, "content-type": "application/json" },
+        body: JSON.stringify({ mode: "direct" }),
+      });
+      check("F3 a mutation without the client header is refused", noHeader.status === 403, String(noHeader.status));
+
+      const withHeader = await rawRequest(route.port, {
+        method: "POST",
+        path: "/dsh-proxy-switch/mode",
+        headers: { host: goodHost, "content-type": "application/json", "x-dsh-proxy-switch-request": "1" },
+        body: JSON.stringify({ mode: "direct" }),
+      });
+      check("F3 a mutation with the client header succeeds", withHeader.status === 200, String(withHeader.status));
+
+      const secretBody = '{"upstream":"http://user:SECRET-BODY@x:9"';
+      const badJson = await rawRequest(route.port, {
+        method: "POST",
+        path: "/dsh-proxy-switch/settings",
+        headers: { host: goodHost, "content-type": "application/json", "x-dsh-proxy-switch-request": "1" },
+        body: secretBody,
+      });
+      const snapshotText = JSON.stringify(controls.snapshot());
+      check(
+        "F15 a malformed body never echoes its content",
+        badJson.status === 400 && !badJson.text.includes("SECRET-BODY") && !snapshotText.includes("SECRET-BODY"),
+        badJson.text.trim().slice(0, 60),
+      );
+
+      const firstDetect = await rawRequest(route.port, {
+        method: "POST",
+        path: "/dsh-proxy-switch/detect",
+        headers: { host: goodHost, "content-type": "application/json", "x-dsh-proxy-switch-request": "1" },
+        body: "{}",
+      });
+      const callsAfterFirstDetect = detectCalls;
+      const secondDetect = await rawRequest(route.port, {
+        method: "POST",
+        path: "/dsh-proxy-switch/detect",
+        headers: { host: goodHost, "content-type": "application/json", "x-dsh-proxy-switch-request": "1" },
+        body: "{}",
+      });
+      check(
+        "A5 an explicit detection is rate limited",
+        firstDetect.status === 200 && secondDetect.status === 429 && detectCalls === callsAfterFirstDetect,
+        `${firstDetect.status}/${secondDetect.status} calls=${detectCalls}`,
+      );
+
+      // F11: a body that arrives after dispose must not act.
+      const settingsPath = join(root, "home-g1", "storages", "dsh-proxy-switch", "state.json");
+      const diskBefore = await readFile(settingsPath, "utf8").catch(() => null);
+      const late = await new Promise((resolve) => {
+        const request = httpRequest(
+          {
+            host: "127.0.0.1",
+            port: route.port,
+            method: "POST",
+            path: "/dsh-proxy-switch/settings",
+            headers: { host: goodHost, "content-type": "application/json", "x-dsh-proxy-switch-request": "1" },
+          },
+          (response) => {
+            const chunks = [];
+            response.on("data", (chunk) => chunks.push(chunk));
+            response.on("end", () => resolve({ status: response.statusCode, text: Buffer.concat(chunks).toString("utf8") }));
+          },
+        );
+        request.write('{"scope":');
+        // Dispose while the handler is parked on the body, then send the rest.
+        void fiber.dispose().then(async () => {
+          await wait(30);
+          request.end('"global"}');
+        });
+      });
+      const diskAfter = await readFile(settingsPath, "utf8").catch(() => null);
+      check("F11 a settings body completed after dispose is refused", late.status === 503, `${late.status} ${late.text.trim().slice(0, 50)}`);
+      check("F11 that late command never writes state", diskAfter === diskBefore);
+      await stop(route.server);
+    }
+
+    // --- F11: a detection that resolves after dispose must not write state ---
+    {
+      let releaseDetection;
+      const gate = new Promise((resolve) => {
+        releaseDetection = resolve;
+      });
+      const home = join(root, "home-g2");
+      process.env.DSH_HOME = home;
+      const { fiber } = await createContext(runtime, pluginModule, {
+        scope: "web_fetch_only",
+        listenPort: await freePort(),
+        probeIntervalMs: 3000,
+        detectUpstream: async () => {
+          await gate;
+          return { found: { url: "http://127.0.0.1:9", source: "system", needsAuth: false, latencyMs: 1 }, tried: [] };
+        },
+      });
+      await fiber.dispose();
+      releaseDetection();
+      await wait(80);
+      const written = await readFile(join(home, "storages", "dsh-proxy-switch", "state.json"), "utf8").catch(() => null);
+      check("F11 a late detection after dispose does not write state", written === null, String(written).slice(0, 40));
+    }
+
+    // --- F12: probe results are bound to the address they measured ---
+    {
+      const probes = [];
+      const home = join(root, "home-g3");
+      process.env.DSH_HOME = home;
+      const { controls, fiber } = await createContext(runtime, pluginModule, {
+        mode: "auto",
+        scope: "web_fetch_only",
+        listenPort: await freePort(),
+        upstream: "http://127.0.0.1:9",
+        probeIntervalMs: 3000,
+        detectUpstream: async () => ({ found: null, tried: [] }),
+        probeImpl: (upstream) =>
+          new Promise((resolve) => {
+            probes.push({ upstream: upstream.href, resolve });
+          }),
+      }, { waitMs: 150 });
+      check("F12 the first probe targets the configured upstream", probes.length >= 1 && probes[0].upstream === "http://127.0.0.1:9/", String(probes[0]?.upstream));
+      await controls.updateSettings({ upstream: "http://127.0.0.1:8" });
+      let snapshot = controls.snapshot();
+      check("F12 a switch clears reachability until the new address is probed", snapshot.probe.reachable === null && snapshot.effectiveMode === "direct", `${snapshot.probe.reachable}/${snapshot.effectiveMode}`);
+      probes[0].resolve({ reachable: true, latencyMs: 1, error: null });
+      await wait(40);
+      snapshot = controls.snapshot();
+      check(
+        "F12 the old address's success is discarded",
+        snapshot.probe.reachable === null && snapshot.effectiveMode === "direct",
+        `${snapshot.probe.reachable}/${snapshot.effectiveMode}`,
+      );
+      const nextProbeRun = controls.probeNow();
+      await wait(30);
+      const nextProbe = probes.at(-1);
+      check("F12 the new address is actually probed", nextProbe.upstream === "http://127.0.0.1:8/", String(nextProbe.upstream));
+      nextProbe.resolve({ reachable: true, latencyMs: 1, error: null });
+      await nextProbeRun;
+      check("F12 the new address's own result applies", controls.snapshot().probe.reachable === true && controls.snapshot().effectiveMode === "forward");
+      await fiber.dispose();
+    }
+
+    // --- F12: a real 407 marks the stored upstream as needing credentials ---
+    {
+      const authUpstream = createHttpServer((request, response) => {
+        response.writeHead(407, { "proxy-authenticate": 'Basic realm="test"' });
+        response.end();
+      });
+      const authPort = await start(authUpstream);
+      process.env.DSH_HOME = join(root, "home-g4");
+      const { ctx, fiber, controls } = await createContext(runtime, pluginModule, {
+        mode: "forward",
+        scope: "web_fetch_only",
+        listenPort: await freePort(),
+        upstream: `http://127.0.0.1:${authPort}`,
+        probeIntervalMs: 3000,
+        detectUpstream: async () => ({ found: null, tried: [] }),
+      }, { waitMs: 150 });
+      await ctx.web.fetch({ url: "http://8.8.8.8/x" }).catch(() => {});
+      await wait(40);
+      check("F12 a 407 response is recorded as needing credentials", controls.snapshot().probe.needsAuth === true);
+      await fiber.dispose();
+      await stop(authUpstream);
+    }
+
+    // --- F14: the direct-mode precheck has a budget even when DNS never answers ---
+    {
+      process.env.DSH_HOME = join(root, "home-g6");
+      const { ctx, fiber } = await createContext(runtime, pluginModule, {
+        mode: "direct",
+        scope: "web_fetch_only",
+        listenPort: await freePort(),
+        upstream: "http://127.0.0.1:9",
+        probeIntervalMs: 3000,
+        precheckTimeoutMs: 120,
+        resolveTarget: () => new Promise(() => {}),
+        detectUpstream: async () => ({ found: null, tried: [] }),
+      }, { waitMs: 150 });
+      const startedAt = Date.now();
+      const refused = await ctx.waterfall(
+        "tools/execute",
+        { name: "web_fetch", arguments: { url: "http://8.8.8.8/x" } },
+        async () => ({ content: [{ type: "text", text: "NEXT" }] }),
+      );
+      check(
+        "F14 a never-ending precheck resolver is bounded",
+        refused.isError === true && refused.error?.info?.code === "PROXY_SWITCH_DNS_TIMEOUT" && Date.now() - startedAt < 2_000,
+        `${refused.error?.info?.code} after ${Date.now() - startedAt}ms`,
+      );
+      await fiber.dispose();
+    }
+
+    // --- F15: a damaged state file never leaks its content ---
+    {
+      const home = join(root, "home-g5");
+      const dir = join(home, "storages", "dsh-proxy-switch");
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "state.json"), '{"upstream":"http://user:SECRET-FILE@x:9"', { encoding: "utf8", mode: 0o600 });
+      process.env.DSH_HOME = home;
+      const { controls, fiber } = await createContext(runtime, pluginModule, {
+        scope: "web_fetch_only",
+        listenPort: await freePort(),
+        probeIntervalMs: 3000,
+        detectUpstream: async () => ({ found: null, tried: [] }),
+      });
+      const text = JSON.stringify(controls.snapshot());
+      check("F15 a malformed state file never echoes its content", !text.includes("SECRET-FILE") && /invalid JSON/.test(text), controls.snapshot().notes.join(" | ").slice(0, 60));
+      await fiber.dispose();
+    }
   }
 
   await rm(root, { recursive: true, force: true });
