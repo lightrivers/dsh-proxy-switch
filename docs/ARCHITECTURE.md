@@ -169,11 +169,11 @@ macOS 的 `scutil` 和 Windows 的 `reg.exe` 用的是绝对路径（`reg.exe` �
 
 ## 8. 客户端（非审查重点）
 
-`client.js` 是没有构建步骤的单文件，注册三个挂载点：`sidebar.footer.action`（整行样式，与 DSH 原生底栏行一致）、`conversation.session.header.utilities`（胶囊样式）、`plugins.bundle.config`（插件页，键为包名，始终存在）。按钮位置保存在 `localStorage` 的 `dsh-proxy-switch.placement`。
+`client.js` 是没有构建步骤的单文件，注册三个挂载点：`sidebar.footer.action`（小胶囊，靠右排在底栏插件那一行；侧栏收起时变成圆形图标）、`conversation.session.header.utilities`（胶囊样式）、`plugins.bundle.config`（插件页，键为包名，始终存在）。按钮位置保存在 `localStorage` 的 `dsh-proxy-switch.placement`。
 
 所有挂载点共用一个状态存储，只在有组件订阅时轮询 `/state`（面板打开时 1.5 秒一次，否则 4 秒一次），同一时间只发一个修改命令。
 
-样式只注入一次（`#dsh-proxy-switch-style`），所有类名以 `dps-` 开头。唯一会影响宿主元素的规则是 `[class*="footerActions"]:has(.dps-row)`：只在侧栏底部出现本插件这一行时，允许那一格换行（收起侧栏时改为竖排），用来和同在这一格的其它插件（例如 `@agents-anywhere/dsh-bridge-next` 的「远程控制」）各占一行，互不挤压。
+样式只注入一次（`#dsh-proxy-switch-style`），所有类名以 `dps-` 开头。会影响宿主元素的规则只有两条，都只在底栏出现本插件按钮时生效：`[class*="footerActions"]:has(.dps-side-pill)` 让那一格垂直居中、留 6px 间距；收起侧栏时 `[class*="_collapsed"] [class*="footerActions"]:has(.dps-row)` 改为竖排。胶囊本身 `flex:none` 不被压缩、`margin-left:auto` 靠右，同一格里的其它插件（例如 `@agents-anywhere/dsh-bridge-next` 的「远程控制」）占剩下的宽度，互不重叠。
 
 ---
 
@@ -182,7 +182,7 @@ macOS 的 `scutil` 和 Windows 的 `reg.exe` 用的是绝对路径（`reg.exe` �
 1. v0.4 在真实 DSH App 里的完整重启复验（Host 新代码需要重启 DSH 才会加载）。
 2. Windows、Linux 上的系统代理读取（只有解析函数的单元测试，没有在真机上跑过）。
 3. 需要认证的真实代理、HTTP/2 目标、长时间运行。
-4. 侧栏换行规则在 DSH 后续版本中是否依然有效（依赖宿主类名包含 `footerActions`）。
+4. 侧栏底栏的居中与竖排规则在 DSH 后续版本中是否依然有效（依赖宿主类名包含 `footerActions`）。
 
 ## 10. 复现命令
 

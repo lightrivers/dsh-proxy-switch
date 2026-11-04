@@ -270,15 +270,13 @@ window.__ModuleLoader__.load({
 .dps-badge[aria-expanded=true]{border-color:var(--dps-accent);background:color-mix(in srgb,var(--dps-accent) 10%,transparent)}
 .dps-badge[data-compact]{padding:0 8px;gap:5px}
 .dps-badge-icon{display:flex;color:var(--dsw-alias-label-secondary)}
-[class*="footerActions"]:has(.dps-row){flex-wrap:wrap}
+[class*="footerActions"]:has(.dps-side-pill){align-items:center;gap:6px}
+.dps-side-pill{flex:none;margin:4px 0 4px auto}
 [class*="_collapsed"] [class*="footerActions"]:has(.dps-row){flex-direction:column;align-items:center}
-.dps-row{display:flex;align-items:center;gap:8px;flex:1 0 calc(100% + 4px);width:calc(100% + 4px);min-width:0;height:42px;margin:2px -2px;padding:0 10px 0 8px;border:0;border-radius:12px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;cursor:pointer;transition:background-color .15s}
+.dps-row{position:relative;display:flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:36px;margin:4px 0;padding:0;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;transition:background-color .15s}
 .dps-row:hover,.dps-row[aria-expanded=true]{background:var(--dps-hover)}
 .dps-row-icon{display:flex;flex:0 0 auto}
-.dps-row-label{flex:1;min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dps-row-state{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;font-size:12px;color:var(--dsw-alias-label-secondary);white-space:nowrap}
-.dps-row[data-rail]{position:relative;flex:0 0 36px;width:36px;height:36px;margin:4px 0;padding:0;justify-content:center;border-radius:50%}
-.dps-row[data-rail] .dps-dot{position:absolute;right:6px;top:6px}
+.dps-row .dps-dot{position:absolute;right:6px;top:6px}
 .dps-badge-text{white-space:nowrap;font-weight:500}
 .dps-badge-text[data-swap]{animation:dps-swap .28s var(--dps-ease)}
 .dps-dot{position:relative;width:7px;height:7px;border-radius:50%;flex:0 0 auto;background:var(--dps-tone);transition:background-color .3s}
@@ -311,11 +309,21 @@ window.__ModuleLoader__.load({
 .dps-stop-icon{position:relative;width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px rgba(0,0,0,.05);transition:border-color .3s,color .3s}
 .dps-stop-icon .dps-dot{position:absolute;right:-2px;top:-2px;box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-2)}
 .dps-stop-proxy{overflow:hidden;transition:width .4s var(--dps-ease),opacity .25s,transform .4s var(--dps-ease)}
-.dps-track[data-route=direct] .dps-stop-proxy{width:0;opacity:0;transform:scale(.6)}
+.dps-track:not([data-route=forward]) .dps-stop-proxy{width:0;opacity:0;transform:scale(.6)}
+.dps-track[data-route=forward] .dps-stop-proxy{overflow:visible}
 .dps-track[data-route=forward] .dps-stop-proxy .dps-stop-icon{border-color:color-mix(in srgb,var(--dps-tone) 55%,transparent);color:var(--dps-tone)}
-.dps-wire{flex:1;min-width:10px;height:2px;margin-top:17px;color:var(--dps-tone);background-image:linear-gradient(90deg,currentColor 55%,transparent 55%);background-size:8px 2px;animation:dps-flow .55s linear infinite;transition:color .3s}
-.dps-track[data-broken] .dps-wire{color:var(--dps-err);animation:none;opacity:.75;background-size:5px 2px}
-.dps-track[data-idle] .dps-wire{animation:none;opacity:.5}
+.dps-wire{position:relative;flex:1;min-width:10px;height:2px;margin-top:17px;color:var(--dps-tone);background-image:linear-gradient(90deg,currentColor 55%,transparent 55%);background-size:8px 2px;animation:dps-flow .55s linear infinite;transition:color .3s}
+.dps-wire[data-w=stuck]{animation:none;opacity:.8}
+.dps-wire[data-w=dead]{animation:none;color:var(--dps-idle);opacity:.45;background-size:5px 2px}
+.dps-wire[data-w=shaky]{animation:dps-stutter 2.2s linear infinite}
+.dps-wire[data-w=scan]{animation:none;color:color-mix(in srgb,var(--dps-idle) 60%,transparent)}
+.dps-wire[data-w=scan]::after{content:"";position:absolute;top:-2px;left:0;width:18px;height:6px;border-radius:3px;background:radial-gradient(closest-side,var(--dps-accent),transparent);animation:dps-scan 1.4s var(--dps-ease) infinite}
+.dps-mark{position:absolute;right:-6px;top:-6px;z-index:1;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;color:#fff;background:var(--dps-tone);box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-2);animation:dps-mark-in .35s var(--dps-spring) both}
+.dps-mark[data-shape=bang]{border-radius:5px}
+.dps-stop-icon[data-down]{border-color:color-mix(in srgb,var(--dps-tone) 55%,transparent);color:var(--dps-tone);animation:dps-nudge .42s var(--dps-ease) .1s both}
+.dps-stop-icon[data-down]>svg{opacity:.4}
+.dps-gap{position:relative;flex:0 0 auto;width:22px;height:36px;animation:dps-gap-open .45s var(--dps-spring) .05s both}
+.dps-gap .dps-mark{left:3px;top:10px;right:auto;animation-delay:.15s}
 .dps-seg{position:relative;display:grid;grid-template-columns:repeat(3,1fr);padding:3px;border-radius:11px;background:var(--dps-fill);border:1px solid var(--dsw-alias-border-l1)}
 .dps-seg-thumb{position:absolute;top:3px;bottom:3px;left:3px;width:calc((100% - 6px) / 3);border-radius:8px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);box-shadow:0 1px 3px rgba(0,0,0,.1);transition:transform .32s var(--dps-spring)}
 .dps-seg-btn{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:32px;padding:0 6px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12.5px;font-weight:500;cursor:pointer;transition:color .2s}
@@ -389,7 +397,7 @@ window.__ModuleLoader__.load({
 .dps-mini::before{content:"";position:absolute;left:0;top:0;bottom:0;width:13px;background:var(--dps-fill);border-right:1px solid var(--dsw-alias-border-l2)}
 .dps-mini::after{content:"";position:absolute;left:15px;right:0;top:0;height:6px;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .dps-mini i{position:absolute;width:7px;height:4px;border-radius:2px;background:var(--dps-accent);z-index:1}
-.dps-mini[data-place=sidebar] i{left:3px;bottom:3px}
+.dps-mini[data-place=sidebar] i{left:5px;bottom:3px}
 .dps-mini[data-place=header] i{right:3px;top:1px}
 .dps-mini[data-place=hidden] i{display:none}
 .dps-foot{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-tertiary);font-size:11px}
@@ -405,6 +413,11 @@ window.__ModuleLoader__.load({
 @keyframes dps-ring{0%{opacity:.7;transform:scale(.6)}100%{opacity:0;transform:scale(1.7)}}
 @keyframes dps-spin{to{transform:rotate(360deg)}}
 @keyframes dps-flow{to{background-position:8px 0}}
+@keyframes dps-stutter{0%{background-position:0 0;opacity:1}30%{background-position:16px 0;opacity:1}36%{opacity:.25}58%{background-position:16px 0;opacity:.25}64%{opacity:1}100%{background-position:40px 0;opacity:1}}
+@keyframes dps-scan{0%{left:-6px;opacity:0}15%,85%{opacity:1}100%{left:calc(100% - 12px);opacity:0}}
+@keyframes dps-mark-in{from{transform:scale(0)}}
+@keyframes dps-gap-open{from{width:0}}
+@keyframes dps-nudge{20%{transform:translateX(-3px)}45%{transform:translateX(3px)}70%{transform:translateX(-2px)}}
 @keyframes dps-drop{from{opacity:0;transform:translateY(-4px)}}
 @keyframes dps-fade{from{opacity:0}}
 @keyframes dps-swap{from{opacity:0;transform:translateY(5px)}}
@@ -431,6 +444,8 @@ window.__ModuleLoader__.load({
       web: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', 'M3.5 9h17M3.5 15h17', 'M12 3c2.5 2.6 3.5 5.6 3.5 9s-1 6.4-3.5 9c-2.5-2.6-3.5-5.6-3.5-9s1-6.4 3.5-9Z'],
       refresh: ['M20 11a8 8 0 1 0-2.3 5.7', 'M20 4v7h-7'],
       close: ['M6 6l12 12M18 6 6 18'],
+      lock: ['M8 11V8.5a4 4 0 0 1 8 0V11', 'M6 11h12v9H6Z'],
+      bang: ['M12 6v8', 'M12 18.5h.01'],
       chevron: ['M9 6l6 6-6 6'],
       alert: ['M12 9v4', 'M12 17h.01', 'M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z'],
       info: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', 'M12 11v5', 'M12 8h.01'],
@@ -439,7 +454,7 @@ window.__ModuleLoader__.load({
       tools: ['M4 4h7v7H4Z', 'M13 4h7v7h-7Z', 'M4 13h7v7H4Z', 'M13 13h7v7h-7Z'],
     }
 
-    function Icon({ name, size = 16 }) {
+    function Icon({ name, size = 16, stroke = 1.8 }) {
       return h(
         'svg',
         {
@@ -448,7 +463,7 @@ window.__ModuleLoader__.load({
           viewBox: '0 0 24 24',
           fill: 'none',
           stroke: 'currentColor',
-          strokeWidth: 1.8,
+          strokeWidth: stroke,
           strokeLinecap: 'round',
           strokeLinejoin: 'round',
           'aria-hidden': true,
@@ -650,6 +665,32 @@ window.__ModuleLoader__.load({
       if (state.detection?.needsAuth === true && state.upstreamSource === 'auto') return 'warn'
       if (provider === 'pending' || state.probe?.reachable === null || state.probe?.reachable === void 0) return 'idle'
       return 'ok'
+    }
+
+    /**
+     * How the route diagram draws the current health. The mark sits where the problem is:
+     * a cross on a node that is down, a lock on a proxy that wants a login, a cut with a
+     * cross when the plugin is not in the path at all, a stuttering line with "!" when
+     * the route works only some of the time. Returns { kind, wires: [left, right] }.
+     */
+    function trackOf(state, error, route, probing) {
+      const cut = { kind: 'cut', wires: ['stuck', 'dead'] }
+      if (error !== null) return cut
+      if (state === null || probing) return { kind: 'scan', wires: ['scan', 'scan'] }
+      const provider = state.provider?.status
+      if (provider === 'blocked' || provider === 'error' || (state.scope === 'global' && state.listenError) || policyBroken(state)) return cut
+      if (provider === 'pending') return { kind: 'scan', wires: ['scan', 'scan'] }
+      if (route === 'forward') {
+        if (state.probe?.reachable === false) return { kind: 'down', wires: ['stuck', 'dead'] }
+        if (state.detection?.needsAuth === true && state.upstreamSource === 'auto') return { kind: 'lock', wires: ['stuck', 'dead'] }
+      }
+      const shaky =
+        state.warning?.code === 'DIRECT_WITH_UPSTREAM' ||
+        state.warning?.code === 'AUTO_PROXY_NOT_FOUND' ||
+        (route === 'direct' && state.detection?.needsAuth === true && state.upstreamSource === 'auto') ||
+        Boolean(state.lastError)
+      if (shaky) return { kind: 'shaky', wires: ['shaky', 'shaky'] }
+      return { kind: 'flow', wires: ['flow', 'flow'] }
     }
 
     /**
@@ -883,13 +924,24 @@ window.__ModuleLoader__.load({
           else heroSub = mode === 'forward' ? t.subPinnedForward : t.subPinnedDirect
         }
 
+        const track = trackOf(state, error, route, probing)
+        const mark = (shape, markTone) =>
+          h('span', { className: `dps-mark dps-tone-${markTone}`, 'data-shape': shape }, h(Icon, { name: shape, size: 10, stroke: 3 }))
         const stop = (icon, label, extra) =>
           h(
             'span',
             { className: extra?.className ? `dps-stop ${extra.className}` : 'dps-stop' },
-            h('span', { className: 'dps-stop-icon' }, h(Icon, { name: icon, size: 17 }), extra?.dot ? h('span', { className: `dps-dot dps-tone-${extra.dot}` }) : null),
+            h(
+              'span',
+              { className: extra?.down ? `dps-stop-icon dps-tone-${extra.down.tone}` : 'dps-stop-icon', 'data-down': flag(extra?.down) },
+              h(Icon, { name: icon, size: 17 }),
+              extra?.down ? mark(extra.down.shape, extra.down.tone) : extra?.dot ? h('span', { className: `dps-dot dps-tone-${extra.dot}` }) : null,
+            ),
             label,
           )
+        const proxyDown = track.kind === 'down' ? { shape: 'close', tone: 'error' } : track.kind === 'lock' ? { shape: 'lock', tone: 'warn' } : null
+        // A cut, or an unstable direct line, gets its mark in the gap where the proxy would be.
+        const gapMark = track.kind === 'cut' ? mark('close', 'error') : track.kind === 'shaky' && route !== 'forward' ? mark('bang', 'warn') : null
 
         const scopeChip = h(
           'button',
@@ -917,16 +969,17 @@ window.__ModuleLoader__.load({
           h(
             'div',
             {
+              key: track.kind,
               className: 'dps-track',
               'aria-hidden': true,
-              'data-route': route,
-              'data-broken': flag(route === 'forward' && reachable === false && !probing),
-              'data-idle': flag(state === null),
+              'data-route': track.kind === 'cut' ? 'none' : route,
+              'data-kind': track.kind,
             },
             stop('app', t.nodeApp),
-            h('span', { className: 'dps-wire' }),
-            stop('proxy', t.nodeProxy, { className: 'dps-stop-proxy', dot: proxyTone }),
-            h('span', { className: 'dps-wire' }),
+            h('span', { className: 'dps-wire', 'data-w': track.wires[0] }),
+            stop('proxy', t.nodeProxy, { className: 'dps-stop-proxy', dot: proxyTone, down: proxyDown }),
+            gapMark ? h('span', { className: 'dps-gap' }, gapMark) : null,
+            h('span', { className: 'dps-wire', 'data-w': track.wires[1] }),
             stop('web', t.nodeWeb),
           ),
         )
@@ -1308,11 +1361,12 @@ window.__ModuleLoader__.load({
           const tip = t.tipFor(`${auto ? `${t.tipAuto} · ` : ''}${routeLabel} · ${scopeLabel}`, status)
           const wide = where === 'header' || props?.wide !== false
 
-          // In the sidebar the entry follows DSH's own footer rows (Settings, Remote
-          // Control): a full-width row, or a round icon on the collapsed rail. In the chat
-          // header it is a compact pill like the other header utilities.
-          const row = where === 'sidebar'
-          const trigger = row
+          // In the sidebar the entry is a compact pill at the right end of the footer
+          // action row, sharing it with other plugins' entries (e.g. Remote Control);
+          // on the collapsed rail it shrinks to a round icon. In the chat header it is
+          // the same pill as the other header utilities.
+          const rail = where === 'sidebar' && !wide
+          const trigger = rail
             ? h(
                 'button',
                 {
@@ -1323,26 +1377,18 @@ window.__ModuleLoader__.load({
                   'aria-label': tip,
                   'aria-haspopup': 'dialog',
                   'aria-expanded': open,
-                  'data-rail': flag(!wide),
+                  'data-rail': '',
                   onClick: toggle,
                 },
                 h('span', { className: 'dps-row-icon' }, h(Icon, { name: auto ? 'auto' : 'route', size: 16 })),
-                wide ? h('span', { className: 'dps-row-label' }, t.name) : null,
-                wide
-                  ? h(
-                      'span',
-                      { className: 'dps-row-state' },
-                      state === null ? null : h('span', { key: routeLabel, className: 'dps-badge-text', 'data-swap': '' }, routeLabel),
-                      h('span', { className: `dps-dot dps-tone-${tone}`, 'data-pulse': flag(tone === 'warn' || tone === 'error') }),
-                    )
-                  : h('span', { className: `dps-dot dps-tone-${tone}`, 'data-pulse': flag(tone === 'warn' || tone === 'error') }),
+                h('span', { className: `dps-dot dps-tone-${tone}`, 'data-pulse': flag(tone === 'warn' || tone === 'error') }),
               )
             : h(
             'button',
             {
               ref: triggerRef,
               type: 'button',
-              className: 'dps-badge',
+              className: where === 'sidebar' ? 'dps-badge dps-side-pill' : 'dps-badge',
               title: tip,
               'aria-label': tip,
               'aria-haspopup': 'dialog',

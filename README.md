@@ -37,7 +37,7 @@
    git clone https://github.com/lightrivers/dsh-proxy-switch.git ~/dsh-proxy-switch
    ```
 2. 在 DeepSeek Harness 里对模型说：「用 plugin_manager 安装插件 `~/dsh-proxy-switch`」（它会执行 `plugin_manager action=install_bundle target=<绝对路径>`）。
-3. **完全退出并重新打开 DSH。** 侧栏底部会多出一行「代理开关」，右边显示当前线路和状态圆点（如「走代理 ●」）。
+3. **完全退出并重新打开 DSH。** 侧栏底部右边会多出一个小按钮，显示当前线路和状态圆点（如「走代理 ●」）。
 
 > 以前在 `~/.dsh/.env` 里写过 `HTTP_PROXY` / `HTTPS_PROXY` 的话，先删掉它们再重启。否则插件关掉后，DSH 还会回到写死的代理。
 
@@ -49,16 +49,16 @@
 
 <p align="center"><img src="docs/images/demo.gif" width="420" alt="演示：切到直连后出现提示，点「改为自动」恢复；关掉代理后自动改为直连"></p>
 
-点侧栏底部的「代理开关」一行打开面板：
+点侧栏底部的这个小按钮打开面板：
 
 | 位置 | 说明 |
 |---|---|
-| **最上面一大块** | 现在走的是哪条线路。线条在流动表示通畅；变红并断开表示连不上。右上角的小标签是作用范围：「仅 web_fetch」或「所有工具」。 |
+| **最上面一大块** | 现在走的是哪条线路。线条在流动表示通畅；出问题时，符号标在出问题的地方：✕ 表示那里断了，🔒 表示代理要登录，❗ 加时断时续的线表示不稳定（部分网站会失败）；灰线上有光点在扫表示正在检测。右上角的小标签是作用范围：「仅 web_fetch」或「所有工具」。 |
 | **自动 / 走代理 / 直连** | 选线路。「自动」适合绝大多数人；另外两个会把线路固定住，不管代理开没开。 |
 | **代理那一行** | 找到的代理地址、怎么找到的（系统代理、环境变量或端口扫描），以及延迟。右边的按钮可以重新检测。 |
 | **更多设置** | 手动填写代理地址、作用范围、按钮放在哪里。 |
 
-「代理开关」一行右侧的圆点：🟢 正常，🟠 需要处理，🔴 出现问题，⚪ 正在检测。
+按钮上的圆点：🟢 正常，🟠 需要处理，🔴 出现问题，⚪ 正在检测。
 
 ### 按钮放哪里
 
@@ -179,9 +179,9 @@ It finds your local HTTP proxy automatically (system proxy settings on macOS/Win
 <p align="center"><img src="docs/images/panel-en.png" width="440" alt="Proxy Switch panel in English"></p>
 
 - **Install:** clone the repo, ask DSH to run `plugin_manager action=install_bundle target=<absolute path>`, then fully restart DSH. Remove any hard-coded `HTTP_PROXY` from `~/.dsh/.env`.
-- **Use:** click the Proxy Switch row at the bottom of the sidebar. Choose **Auto** (recommended), **Proxy**, or **Direct**. A tag on the panel shows whether the switch applies to *web_fetch only* or *all tools*.
-- **When something is off,** the panel shows one sentence and a button that fixes it, such as *Switch to Auto* or *Enter the address*.
-- **Button location:** sidebar row, chat header pill, or hidden. The full panel is always available under *Plugins → Proxy Switch*.
+- **Use:** click the small Proxy Switch pill at the bottom of the sidebar. Choose **Auto** (recommended), **Proxy**, or **Direct**. A tag on the panel shows whether the switch applies to *web_fetch only* or *all tools*.
+- **When something is off,** the route diagram marks the spot (✕ broken, 🔒 proxy wants a login, ❗ unstable), and the panel shows one sentence and a button that fixes it, such as *Switch to Auto* or *Enter the address*.
+- **Button location:** sidebar footer, chat header, or hidden. The full panel is always available under *Plugins → Proxy Switch*.
 - HTTP upstreams only (use your proxy app's HTTP or mixed port). Fully verified on macOS so far.
 
 Design, security boundaries, and test coverage: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
