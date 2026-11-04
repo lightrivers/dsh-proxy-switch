@@ -230,6 +230,8 @@ async function main() {
           : { ok: true, address: "127.0.0.1", addresses: [{ address: "127.0.0.1", family: 4 }] },
     }, { initialFetchProvider: "http" });
     let current = controls.snapshot();
+    const manifest = JSON.parse(await readFile(join(PLUGIN_DIR, "package.json"), "utf8"));
+    check("A the reported version comes from package.json", current.version === manifest.version, `${current.version}/${manifest.version}`);
     check("A provider active", current.provider.status === "active", JSON.stringify(current.provider));
     check("A overrides the bundle's http default", ctx.web.config.fetchProvider.get() === "dsh-proxy-switch");
     check("A no global policy in web_fetch_only", current.policyInstalled === false && current.listening === false);

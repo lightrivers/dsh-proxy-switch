@@ -55,6 +55,8 @@ Why it happens: a proxy in TUN mode answers every DNS lookup with a "fake" addre
 
 To upgrade: run `git pull` in the source folder, then repeat steps 2 and 3.
 
+When upgrading from 0.4.1 or earlier (0.4.2 renames the package to `@lightrivers/dsh-proxy-switch`), first ask the model to uninstall `dsh-proxy-switch` with `plugin_manager`, then install the new version following the steps above. Your settings and state are kept.
+
 ## Usage
 
 **Most people do not need to do anything.** The default is **Auto**: the plugin reads your system proxy settings, finds the proxy port, routes `web_fetch` through the proxy while it runs, and switches to direct when the proxy is turned off.

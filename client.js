@@ -15,13 +15,13 @@
  * All mutations are the Host's: the Client only sends requests and renders the state.
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-proxy-switch',
+  id: '@lightrivers/dsh-proxy-switch',
   factory(require) {
     const React = require('react')
     const { useCallback, useEffect, useRef, useState } = React
     const h = React.createElement
 
-    const PACKAGE_NAME = 'dsh-proxy-switch'
+    const PACKAGE_NAME = '@lightrivers/dsh-proxy-switch'
     const PLACEMENT_KEY = 'dsh-proxy-switch.placement'
     const PLACEMENTS = ['sidebar', 'header', 'hidden']
 

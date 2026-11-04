@@ -108,7 +108,7 @@ function baseState(overrides = {}) {
 
 test("client.js registers the sidebar pill, the header pill, and the plugin page", () => {
   assert.ok(captured, "the module loader must receive one declaration");
-  assert.equal(captured.id, "dsh-proxy-switch");
+  assert.equal(captured.id, "@lightrivers/dsh-proxy-switch");
   const { plugin, registered } = loadPlugin();
   assert.deepEqual(plugin.inject, ["slots"]);
   assert.deepEqual(Object.keys(registered).sort(), [
@@ -116,10 +116,10 @@ test("client.js registers the sidebar pill, the header pill, and the plugin page
     "plugins.bundle.config",
     "sidebar.footer.action",
   ]);
-  assert.equal(registered["sidebar.footer.action"].options.id, "dsh-proxy-switch");
+  assert.equal(registered["sidebar.footer.action"].options.id, "@lightrivers/dsh-proxy-switch");
   assert.equal(registered["sidebar.footer.action"].options.order, 40);
   // The plugin page is keyed by the npm package name, as the Plugins page requires.
-  assert.equal(registered["plugins.bundle.config"].options.key, "dsh-proxy-switch");
+  assert.equal(registered["plugins.bundle.config"].options.key, "@lightrivers/dsh-proxy-switch");
 });
 
 test("the pill renders in the sidebar by default and not in the header", () => {
