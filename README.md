@@ -3,7 +3,7 @@
 # 代理开关 · dsh-proxy-switch
 
 [![test](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml/badge.svg)](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml)
-[![version](https://img.shields.io/github/package-json/v/lightrivers/dsh-proxy-switch?label=version)](package.json)
+[![npm](https://img.shields.io/npm/v/@lightrivers/dsh-proxy-switch?label=npm)](https://www.npmjs.com/package/@lightrivers/dsh-proxy-switch)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DeepSeek Harness 0.2.x](https://img.shields.io/badge/DeepSeek%20Harness-0.2.x-4176e6.svg)](#环境要求)
 [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#环境要求)
@@ -49,18 +49,22 @@
 
 ## 安装
 
+在 DeepSeek Harness 里对模型说：「用 plugin_manager 安装插件 `@lightrivers/dsh-proxy-switch`」，然后**完全退出并重新打开 DSH**。侧栏底部右边会多出一个小按钮，显示当前线路和状态圆点（如「走代理 ●」）。
+
+> 以前在 `~/.dsh/.env` 里写过 `HTTP_PROXY` / `HTTPS_PROXY` 的话，先删掉它们再重启。否则插件关掉后，DSH 还会回到写死的代理。
+
+<details>
+<summary>从源码安装（想改代码时用）</summary>
+
 1. 下载源码：
    ```bash
    git clone https://github.com/lightrivers/dsh-proxy-switch.git ~/dsh-proxy-switch
    ```
-2. 在 DeepSeek Harness 里对模型说：「用 plugin_manager 安装插件 `~/dsh-proxy-switch`」（它会执行 `plugin_manager action=install_bundle target=<绝对路径>`）。
-3. **完全退出并重新打开 DSH。** 侧栏底部右边会多出一个小按钮，显示当前线路和状态圆点（如「走代理 ●」）。
+2. 对模型说：「用 plugin_manager 安装插件 `~/dsh-proxy-switch`」（它会执行 `plugin_manager action=install_bundle target=<绝对路径>`）。
+3. 完全退出并重新打开 DSH。升级时在源码目录 `git pull`，再执行一次第 2、3 步。
+</details>
 
-> 以前在 `~/.dsh/.env` 里写过 `HTTP_PROXY` / `HTTPS_PROXY` 的话，先删掉它们再重启。否则插件关掉后，DSH 还会回到写死的代理。
-
-升级：在源码目录 `git pull`，再执行一次第 2、3 步。
-
-从 0.4.1 及更早版本升级时（0.4.2 起包名改为 `@lightrivers/dsh-proxy-switch`），先让模型用 `plugin_manager` 卸载 `dsh-proxy-switch`，再按安装步骤装新版；设置和状态会保留。
+从 0.4.1 及更早版本升级时（0.4.2 起包名改为 `@lightrivers/dsh-proxy-switch`），先让模型用 `plugin_manager` 卸载 `dsh-proxy-switch`，再按上面的方法安装新版；设置和状态会保留。
 
 ## 怎么用
 

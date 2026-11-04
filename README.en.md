@@ -3,7 +3,7 @@
 # Proxy Switch · dsh-proxy-switch
 
 [![test](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml/badge.svg)](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml)
-[![version](https://img.shields.io/github/package-json/v/lightrivers/dsh-proxy-switch?label=version)](package.json)
+[![npm](https://img.shields.io/npm/v/@lightrivers/dsh-proxy-switch?label=npm)](https://www.npmjs.com/package/@lightrivers/dsh-proxy-switch)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DeepSeek Harness 0.2.x](https://img.shields.io/badge/DeepSeek%20Harness-0.2.x-4176e6.svg)](#requirements)
 [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#requirements)
@@ -44,18 +44,22 @@ Why it happens: a proxy in TUN mode answers every DNS lookup with a "fake" addre
 
 ## Install
 
+In DeepSeek Harness, ask the model: "Install the plugin `@lightrivers/dsh-proxy-switch` with plugin_manager", then **quit DSH completely and open it again**. A small pill appears at the bottom right of the sidebar, showing the current route and a status dot (for example "Proxy ●").
+
+> If you previously put `HTTP_PROXY` / `HTTPS_PROXY` in `~/.dsh/.env`, remove them before restarting. Otherwise DSH falls back to the hard-coded proxy whenever the plugin is off.
+
+<details>
+<summary>Install from source (if you want to change the code)</summary>
+
 1. Get the source:
    ```bash
    git clone https://github.com/lightrivers/dsh-proxy-switch.git ~/dsh-proxy-switch
    ```
-2. In DeepSeek Harness, ask the model: "Install the plugin at `~/dsh-proxy-switch` with plugin_manager" (it runs `plugin_manager action=install_bundle target=<absolute path>`).
-3. **Quit DSH completely and open it again.** A small pill appears at the bottom right of the sidebar, showing the current route and a status dot (for example "Proxy ●").
+2. Ask the model: "Install the plugin at `~/dsh-proxy-switch` with plugin_manager" (it runs `plugin_manager action=install_bundle target=<absolute path>`).
+3. Quit DSH completely and open it again. To upgrade, run `git pull` in the source folder and repeat steps 2 and 3.
+</details>
 
-> If you previously put `HTTP_PROXY` / `HTTPS_PROXY` in `~/.dsh/.env`, remove them before restarting. Otherwise DSH falls back to the hard-coded proxy whenever the plugin is off.
-
-To upgrade: run `git pull` in the source folder, then repeat steps 2 and 3.
-
-When upgrading from 0.4.1 or earlier (0.4.2 renames the package to `@lightrivers/dsh-proxy-switch`), first ask the model to uninstall `dsh-proxy-switch` with `plugin_manager`, then install the new version following the steps above. Your settings and state are kept.
+When upgrading from 0.4.1 or earlier (0.4.2 renames the package to `@lightrivers/dsh-proxy-switch`), first ask the model to uninstall `dsh-proxy-switch` with `plugin_manager`, then install the new version as above. Your settings and state are kept.
 
 ## Usage
 
