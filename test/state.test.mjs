@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -204,4 +204,61 @@ test("two same-millisecond saves use distinct temp files and both succeed", asyn
   const parsed = JSON.parse(await readFile(statePath(home), "utf8"));
   assert.ok(parsed.mode === "forward" || parsed.mode === "direct");
   assert.equal((await stat(statePath(home))).mode & 0o777, 0o600);
+});
+
+test("F16: loading repairs a 0755 directory and a 0644 state file before reading it", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "dsh-proxy-switch-state-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const dir = join(home, "storages", "dsh-proxy-switch");
+  await mkdir(dir, { recursive: true });
+  await chmod(dir, 0o755);
+  const file = join(dir, "state.json");
+  await writeFile(file, JSON.stringify({ ...DEFAULT_STATE, upstream: "http://u:p@127.0.0.1:1082", upstreamSource: "manual" }), {
+    encoding: "utf8",
+  });
+  await chmod(file, 0o644);
+
+  const loaded = await loadState(home);
+  assert.equal(loaded.state.upstreamSource, "manual");
+  assert.equal((await stat(dir)).mode & 0o777, 0o700, "the directory is repaired on load");
+  assert.equal((await stat(file)).mode & 0o777, 0o600, "the file is repaired on load");
+});
+
+test("F17: saveState sets the mode on the temp file before the rename commit", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "dsh-proxy-switch-state-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const operations = [];
+  const io = {
+    chmod: async (path, mode) => {
+      operations.push({ op: "chmod", path, mode });
+      await chmod(path, mode);
+    },
+    rename: async (from, to) => {
+      operations.push({ op: "rename", from, to });
+      await rename(from, to);
+    },
+  };
+  await saveState(home, { ...DEFAULT_STATE, mode: "forward" }, { io });
+  const tempChmod = operations.findIndex((entry) => entry.op === "chmod" && entry.path.endsWith(".tmp"));
+  const renameIndex = operations.findIndex((entry) => entry.op === "rename");
+  assert.ok(tempChmod !== -1, "the temp file must be chmod-ed");
+  assert.ok(renameIndex !== -1, "the commit must be a rename");
+  assert.ok(tempChmod < renameIndex, "chmod must precede the rename commit");
+  assert.equal(operations.some((entry) => entry.op === "chmod" && entry.path.endsWith("state.json")), false);
+  assert.equal((await stat(statePath(home))).mode & 0o777, 0o600);
+});
+
+test("F17: a chmod failure before the commit leaves the old state and reports failure", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "dsh-proxy-switch-state-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await saveState(home, { ...DEFAULT_STATE, mode: "direct" });
+  const io = {
+    chmod: async (path, mode) => {
+      if (path.endsWith(".tmp")) throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      await chmod(path, mode);
+    },
+  };
+  await assert.rejects(saveState(home, { ...DEFAULT_STATE, mode: "forward" }, { io }));
+  const disk = JSON.parse(await readFile(statePath(home), "utf8"));
+  assert.equal(disk.mode, "direct", "the reported failure must match what is on disk");
 });

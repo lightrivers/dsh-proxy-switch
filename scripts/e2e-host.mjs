@@ -857,6 +857,24 @@ async function main() {
       });
       check("F3 a mutation with the client header succeeds", withHeader.status === 200, String(withHeader.status));
 
+      const channelPort = controls.webFetchPort();
+      const selfRejected = await controls
+        .updateSettings({ upstream: `http://127.0.0.1:${channelPort}` })
+        .then(() => null, (error) => error);
+      check(
+        "F9 a manual upstream pointing at the private channel is refused",
+        selfRejected instanceof Error && /递归/u.test(selfRejected.message),
+        String(selfRejected?.message).slice(0, 60),
+      );
+      const aliasRejected = await controls
+        .updateSettings({ upstream: `http://localhost.:${channelPort}` })
+        .then(() => null, (error) => error);
+      check(
+        "F9 the same applies to an alias spelling",
+        aliasRejected instanceof Error && /递归/u.test(aliasRejected.message),
+        String(aliasRejected?.message).slice(0, 60),
+      );
+
       const secretBody = '{"upstream":"http://user:SECRET-BODY@x:9"';
       const badJson = await rawRequest(route.port, {
         method: "POST",

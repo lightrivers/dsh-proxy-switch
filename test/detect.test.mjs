@@ -77,7 +77,8 @@ test("readSystemProxy picks the platform reader", async () => {
   const windows = await readSystemProxy({ platform: "win32", run, env: { SystemRoot: "C:\\Windows" } });
   assert.deepEqual(windows.urls, ["http://127.0.0.1:7890"]);
   assert.ok(calls.some((call) => call.includes("reg.exe query")));
-  assert.deepEqual((await readSystemProxy({ platform: "linux", run, env: {} })).urls, ["http://127.0.0.1:2080"]);
+  const exists = async () => true;
+  assert.deepEqual((await readSystemProxy({ platform: "linux", run, env: {}, exists })).urls, ["http://127.0.0.1:2080"]);
   assert.deepEqual((await readSystemProxy({ platform: "aix", run })).urls, []);
 });
 
@@ -121,7 +122,7 @@ test("verifyHttpProxy classifies proxy, auth proxy, web server, and silence", as
 
 test("detectUpstream prefers the system setting, then the environment, then a scan", async () => {
   const verdicts = new Map([
-    ["http://127.0.0.1:1082", { kind: "http" }],
+    ["http://127.0.0.1:1082", { kind: "proxy" }],
     ["http://127.0.0.1:7890", { kind: "proxy" }],
     ["http://127.0.0.1:6152", { kind: "http" }],
     ["http://127.0.0.1:7897", { kind: "proxy" }],
@@ -133,7 +134,7 @@ test("detectUpstream prefers the system setting, then the environment, then a sc
     getEnv: () => void 0,
     verify,
   });
-  // An explicitly configured proxy is accepted on any HTTP answer.
+  // An explicitly configured proxy must still answer 200/407 like any other candidate.
   assert.equal(system.found.url, "http://127.0.0.1:1082");
   assert.equal(system.found.source, "system");
 
@@ -174,4 +175,80 @@ test("detectUpstream never offers the plugin's own ports", async () => {
   });
   assert.equal(result.found.url, "http://127.0.0.1:7890");
   assert.deepEqual(seen, ["http://127.0.0.1:7890"]);
+});
+
+test("F5: a system or environment candidate that only answers a status line is not adopted", async () => {
+  const verify = async (url) => {
+    if (url === "http://127.0.0.1:1082") return { kind: "http", status: 404, latencyMs: 1 };
+    if (url === "http://127.0.0.1:7890") return { kind: "proxy", latencyMs: 1 };
+    return { kind: "none", latencyMs: 1 };
+  };
+  const result = await detectUpstream({
+    readSystem: async () => ({ reader: "scutil", urls: ["http://127.0.0.1:1082"] }),
+    getEnv: (name) => (name === "HTTPS_PROXY" ? "http://127.0.0.1:7890" : void 0),
+    verify,
+  });
+  assert.equal(result.found.url, "http://127.0.0.1:7890");
+  assert.equal(result.tried.find((entry) => entry.url === "http://127.0.0.1:1082").kind, "http");
+
+  const none = await detectUpstream({
+    readSystem: async () => ({ reader: "scutil", urls: ["http://127.0.0.1:1082"] }),
+    getEnv: () => void 0,
+    commonPorts: [],
+    verify,
+  });
+  assert.equal(none.found, null);
+});
+
+test("F9: the plugin's own ports are excluded in every spelling, including local names", async () => {
+  const seen = [];
+  const verify = async (url) => {
+    seen.push(url);
+    return { kind: "proxy", latencyMs: 1 };
+  };
+  const lookupFn = async (host) => {
+    if (host === "my-mac.local") return [{ address: "127.0.0.1", family: 4 }];
+    const error = new Error("ENOTFOUND");
+    error.code = "ENOTFOUND";
+    throw error;
+  };
+  const result = await detectUpstream({
+    readSystem: async () => ({
+      reader: "scutil",
+      urls: ["http://localhost.:7899", "http://[::ffff:127.0.0.1]:53000", "http://127.1:53001"],
+    }),
+    getEnv: (name) => (name === "HTTP_PROXY" ? "http://my-mac.local:53000" : void 0),
+    excludePorts: [7899, 53000, 53001],
+    commonPorts: [7890],
+    lookupFn,
+    verify,
+  });
+  assert.equal(result.found.url, "http://127.0.0.1:7890");
+  assert.deepEqual(seen, ["http://127.0.0.1:7890"], "no self spelling may even be verified");
+});
+
+test("F18: configuration readers never take their executable from PATH or an untrusted SystemRoot", async () => {
+  const runCalls = [];
+  const run = async (file, args) => {
+    runCalls.push([file, ...args].join(" "));
+    if (args.includes("mode")) return "'manual'";
+    if (args.includes("host")) return "'127.0.0.1'";
+    if (args.includes("port")) return "2080";
+    return null;
+  };
+  const exists = async (path) => path === "/usr/bin/gsettings";
+  const linux = await readSystemProxy({ platform: "linux", run, env: {}, exists });
+  assert.deepEqual(linux.urls, ["http://127.0.0.1:2080"]);
+  assert.ok(runCalls.every((call) => call.startsWith("/usr/bin/gsettings")), runCalls.join(" | "));
+
+  for (const SystemRoot of ["attacker-controlled", "\\server\\share", "Windows", "C:\\Windows\\..\\evil"]) {
+    const winCalls = [];
+    const winRun = async (file) => {
+      winCalls.push(file);
+      return "";
+    };
+    await readSystemProxy({ platform: "win32", run: winRun, env: { SystemRoot } });
+    assert.equal(winCalls.length, 1);
+    assert.match(winCalls[0], /^[A-Za-z]:\\Windows\\System32\\reg\.exe$/u, `${SystemRoot} -> ${winCalls[0]}`);
+  }
 });
