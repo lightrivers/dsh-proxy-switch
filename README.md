@@ -101,6 +101,11 @@
 **代理需要账号密码怎么办？**
 自动检测会发现它要求登录，并提示你手动填写 `http://user:pass@地址:端口`。密码只保存在本机，权限为 600，界面、日志和提示里一律显示为 `***`。
 
+**走代理时，模型能借插件访问我的内网或本机服务吗？**
+插件会尽量挡住，但不能保证百分之百。走代理时，网址最终由代理软件去解析和连接，插件看不到它实际连到了哪里。所以插件在交给代理之前先在本机检查一遍：`localhost`、`.local`、`.lan` 这类本地名字直接拒绝，在本机解析出内网地址的也拒绝。但开着 TUN 时本机只能解析到假地址（`198.18.x.x`），判断不了真实目标，只能放行。这和以前在 `~/.dsh/.env` 里手写 `HTTP_PROXY` 时的情况一样；直连则有完整的检查。
+
+反过来，如果你的 DNS 被污染，把正常网站解析成了内网地址，走代理时这个网站会被误拒，提示里会写「转发模式拒绝请求」。打开代理软件的 TUN（或换一个可信的 DNS）就能恢复。
+
 **支持 SOCKS、HTTPS 或 PAC 代理吗？**
 目前只支持 HTTP 代理。好在几乎所有代理软件都提供 HTTP 端口或"混合端口"，用那个端口就行。
 
@@ -117,6 +122,8 @@ web_fetch ──▶ 插件自己的 web_fetch 提供者 ──▶ 本机私有�
 
 - 插件只替换 `web_fetch` 的"发请求"这一步。重定向、超时、大小限制、编码处理仍然沿用 DSH 原来的实现。
 - 直连时，整组 DNS 结果都必须是公网地址：fake-IP、内网、回环、NAT64 内嵌私网地址等一律拒绝。
+- 走代理时，本地名字和在本机解析成内网地址的目标会被拒绝；最终由代理解析，所以这只是缓解（见上面的常见问题）。
+- 私有通道每次启动生成随机令牌，本机其它程序无法借用它（以及你保存的代理账号密码）。
 - 每个请求都使用新连接，切换线路后不会沿用旧的代理隧道。
 - 设计细节、安全边界和测试覆盖见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。历史审查记录见 [REVIEW.md](REVIEW.md)。
 
@@ -147,7 +154,7 @@ POST /dsh-proxy-switch/probe     立即检测一次当前代理
 POST /dsh-proxy-switch/detect    立即重新查找代理
 ```
 
-接口只接受本机请求，并校验 `Origin`、`Sec-Fetch-Site` 和 `Content-Type: application/json`。`state` 里的主要字段有：`mode`、`effectiveMode`（当前实际走的线路）、`upstream`（已脱敏）、`upstreamSource`、`detection`、`probe`、`warning`、`provider`、`scope`、`stats`。
+接口只接受本机请求，`Host` 必须是 DSH 自己的地址，并校验 `Origin`、`Sec-Fetch-Site`；`POST` 还要求 `Content-Type: application/json` 和请求头 `x-dsh-proxy-switch-request: 1`。`state` 里的主要字段有：`mode`、`effectiveMode`（当前实际走的线路）、`upstream`（已脱敏）、`upstreamSource`、`detection`、`probe`、`warning`、`provider`、`scope`、`stats`。
 
 ## 开发与测试
 
@@ -183,6 +190,7 @@ It finds your local HTTP proxy automatically (system proxy settings on macOS/Win
 - **When something is off,** the route diagram marks the spot (✕ broken, 🔒 proxy wants a login, ❗ unstable), and the panel shows one sentence and a button that fixes it, such as *Switch to Auto* or *Enter the address*.
 - **Button location:** sidebar footer, chat header, or hidden. The full panel is always available under *Plugins → Proxy Switch*.
 - HTTP upstreams only (use your proxy app's HTTP or mixed port). Fully verified on macOS so far.
+- **Security note:** direct mode checks every DNS answer. In proxy mode the proxy resolves the name, so the plugin can only refuse local names and names that already resolve to private addresses on this machine; under fake-IP it cannot see the real target. This is a mitigation, not a guarantee.
 
 Design, security boundaries, and test coverage: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
