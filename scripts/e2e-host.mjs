@@ -33,7 +33,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { connect } from "node:net";
+import { connect, createServer as createNetServer } from "node:net";
 import { once } from "node:events";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -278,6 +278,144 @@ async function main() {
     check("A teardown unregisters the provider", !ctx.web.fetchProviders.has("dsh-proxy-switch"));
     await stop(target);
     await stop(upstream.server);
+  }
+
+  // ---------- Phase P: proxy-client transport hardening (F6/F7) ----------
+  {
+    const { requestThroughLocalProxy } = await import(pathToFileURL(join(pluginDir, "lib", "proxy-client.js")).href);
+
+    /** A raw loopback "forwarder": hand every connection to `onSocket`, track live ones. */
+    async function startRawForwarder(onSocket) {
+      const live = new Set();
+      const server = createNetServer((socket) => {
+        live.add(socket);
+        socket.on("close", () => live.delete(socket));
+        socket.on("error", () => {});
+        onSocket(socket);
+      });
+      const port = await start(server);
+      return {
+        port,
+        live,
+        stop: async () => {
+          for (const socket of live) socket.destroy();
+          await stop(server);
+        },
+      };
+    }
+    const rejectionOf = (promise) =>
+      promise.then(
+        (value) => ({ rejected: false, value }),
+        (error) => ({ rejected: true, error }),
+      );
+    async function waitFor(predicate, timeoutMs = 1_500) {
+      const startedAt = Date.now();
+      while (!predicate()) {
+        if (Date.now() - startedAt > timeoutMs) return false;
+        await wait(20);
+      }
+      return true;
+    }
+
+    // F6: a status outside the Web `Response` range must become a structured WebError.
+    const badStatus = await startRawForwarder((socket) => {
+      let buffered = "";
+      socket.on("data", (chunk) => {
+        buffered += chunk.toString("latin1");
+        if (!buffered.includes("\r\n\r\n")) return;
+        socket.end("HTTP/1.1 600 Unexpected\r\nContent-Length: 2\r\nConnection: close\r\n\r\nno");
+      });
+    });
+    const overRange = await rejectionOf(
+      requestThroughLocalProxy({ url: new URL("http://8.8.8.8/x"), headers: {}, proxyPort: badStatus.port }),
+    );
+    check(
+      "F6 an out-of-range HTTP status becomes a structured error",
+      overRange.rejected && overRange.error?.code === "PROXY_SWITCH_UPSTREAM_BAD_RESPONSE" && overRange.error?.name === "WebError",
+      overRange.rejected ? `${overRange.error?.name}: ${overRange.error?.code}` : "resolved",
+    );
+    check("F6 the callback did not throw into the host process", true);
+    await waitFor(() => badStatus.live.size === 0);
+    check("F6 the upstream socket is closed after the refusal", badStatus.live.size === 0, String(badStatus.live.size));
+    await badStatus.stop();
+
+    // A CONNECT that succeeds but never speaks TLS: abort and deadline must both work.
+    const tlsHang = await startRawForwarder((socket) => {
+      let buffered = "";
+      let replied = false;
+      socket.on("data", (chunk) => {
+        buffered += chunk.toString("latin1");
+        if (replied || !buffered.includes("\r\n\r\n")) return;
+        replied = true;
+        socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      });
+    });
+    const httpsInput = (extra) => ({
+      url: new URL("https://8.8.8.8/x"),
+      headers: {},
+      proxyPort: tlsHang.port,
+      ...extra,
+    });
+
+    const abortController = new AbortController();
+    const abortStartedAt = Date.now();
+    const abortPending = rejectionOf(requestThroughLocalProxy(httpsInput({ signal: abortController.signal })));
+    setTimeout(() => abortController.abort(), 80);
+    const aborted = await abortPending;
+    check(
+      "F7 abort during the TLS handshake rejects promptly",
+      aborted.rejected && aborted.error?.code === "WEB_ABORTED" && Date.now() - abortStartedAt < 1_500,
+      aborted.rejected ? `${aborted.error?.code} after ${Date.now() - abortStartedAt}ms` : "resolved",
+    );
+    await waitFor(() => tlsHang.live.size === 0);
+    check("F7 abort closes both sockets", tlsHang.live.size === 0, String(tlsHang.live.size));
+
+    const deadlineController = new AbortController();
+    const deadlineStartedAt = Date.now();
+    const deadlinePending = rejectionOf(requestThroughLocalProxy(httpsInput({ signal: deadlineController.signal })));
+    setTimeout(() => deadlineController.abort({ name: "TimeoutReason", code: "WEB_FETCH_TIMEOUT" }), 80);
+    const deadlined = await deadlinePending;
+    check(
+      "F7 a deadline during the TLS handshake maps to WEB_FETCH_TIMEOUT",
+      deadlined.rejected && deadlined.error?.code === "WEB_FETCH_TIMEOUT" && Date.now() - deadlineStartedAt < 1_500,
+      deadlined.rejected ? `${deadlined.error?.code} after ${Date.now() - deadlineStartedAt}ms` : "resolved",
+    );
+
+    const preAborted = new AbortController();
+    preAborted.abort();
+    const preAbortedResult = await rejectionOf(requestThroughLocalProxy(httpsInput({ signal: preAborted.signal })));
+    check(
+      "F7 an already-aborted signal rejects before dialing",
+      preAbortedResult.rejected && preAbortedResult.error?.code === "WEB_ABORTED",
+      preAbortedResult.rejected ? String(preAbortedResult.error?.code) : "resolved",
+    );
+
+    const handshakeStartedAt = Date.now();
+    const handshakeTimeout = await rejectionOf(requestThroughLocalProxy(httpsInput({ tlsHandshakeTimeoutMs: 150 })));
+    check(
+      "F7 a silent TLS handshake times out on its own budget",
+      handshakeTimeout.rejected &&
+        handshakeTimeout.error?.code === "PROXY_SWITCH_UPSTREAM_TIMEOUT" &&
+        Date.now() - handshakeStartedAt < 2_000,
+      handshakeTimeout.rejected ? `${handshakeTimeout.error?.code} after ${Date.now() - handshakeStartedAt}ms` : "resolved",
+    );
+    await waitFor(() => tlsHang.live.size === 0);
+    check("F7 the timeout closes the silent socket", tlsHang.live.size === 0, String(tlsHang.live.size));
+    await tlsHang.stop();
+
+    // Sanity: a normal 200 response still converts and streams.
+    const healthy = await startRawForwarder((socket) => {
+      let buffered = "";
+      socket.on("data", (chunk) => {
+        buffered += chunk.toString("latin1");
+        if (!buffered.includes("\r\n\r\n")) return;
+        socket.end("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+      });
+    });
+    const good = await requestThroughLocalProxy({ url: new URL("http://8.8.8.8/ok"), headers: {}, proxyPort: healthy.port });
+    check("P a normal HTTP response still streams", (await good.response.text()) === "ok");
+    await good.close();
+    await healthy.stop();
   }
 
   // ---------- Phase B: R1 warm HTTPS tunnel ----------
