@@ -25,8 +25,8 @@ DeepSeek Harness（DSH）的 `web_fetch` 在 TUN/fake-IP 代理客户端运行�
 |---|---|---|
 | `lib/index.js` | Host 插件主体：状态、命令队列、provider 接管、检测生命周期、Web 路由、`tools/execute` 包装、teardown | `apply()`；`runDetection()` 约在 :428；路由 guard 约在 :656；`tools/execute` 约在 :727 |
 | `lib/fetch-provider.js` | 继承运行时的 `HttpFetchProvider`，只覆盖 `requestOnce`，把请求发到私有通道 | `createProxySwitchProvider` |
-| `lib/proxy-client.js` | 私有通道的客户端：HTTP 走绝对 URI，HTTPS 走 CONNECT 再接 TLS；把转发器的错误码映射回 `WebError` | `requestThroughLocalProxy` |
-| `lib/forwarder.js` | 只监听 127.0.0.1 的严格转发器（web_fetch 一个实例，`global` 一个实例），按 `getMode()` 选择上游或直连 | `forwardHttp` :349，`directHttp` :420，`connectViaUpstream` :569 |
+| `lib/proxy-client.js` | 私有通道的客户端：HTTP 走绝对 URI，HTTPS 走 CONNECT 再接 TLS；携带通道令牌，中止/截止贯穿 TLS 阶段，把转发器的错误码映射回 `WebError` | `requestThroughLocalProxy` |
+| `lib/forwarder.js` | 只监听 127.0.0.1 的严格转发器（web_fetch 一个实例，`global` 一个实例），校验通道令牌、拒绝自身上游、跟踪并销毁所有出站连接，按 `getMode()` 选择上游或直连 | `forwardHttp`，`directHttp`，`connectViaUpstream` |
 | `lib/net-guard.js` | SSRF 判定：按字节解析 IP、mapped/translated/compatible、NAT64（RFC 7050/6052）、authority 严格解析 | `judgeAddresses` :473，`resolveDirectTarget`，`parseAuthority` |
 | `lib/detect.js`（v0.4） | 上游检测：读系统代理（macOS `scutil`、Windows 注册表、Linux `gsettings`/`kioslaverc`）、读环境变量、扫描端口，并用 `CONNECT` 验证 | `readSystemProxy` :233，`verifyHttpProxy` :277，`detectUpstream` :366 |
 | `lib/messages.js` | 警告状态机，以及 `effectiveModeOf`（auto 在什么情况下走代理） | `warningFor`，`effectiveModeOf` :38 |
@@ -51,7 +51,7 @@ DeepSeek Harness（DSH）的 `web_fetch` 在 TUN/fake-IP 代理客户端运行�
        │     └─ 拒绝 → 返回 isError 结果（auto 下遇到 fake-IP 还会记录 lastFakeIpAt，并以 10 秒限频重新检测）
        └─ next() → ctx.web.fetch → 本插件 provider.requestOnce
              └─ proxy-client → 127.0.0.1:<随机端口>（web_fetch 转发器，isolateConnections）
-                   ├─ getMode()=forward → 上游代理（只拦截非公网 IP 字面量）
+                   ├─ getMode()=forward → 本地判定目标 + 上游代理（非公网字面量/本地名拒绝）
                    └─ getMode()=direct  → resolveTarget → judgeAddresses → 连接校验过的 IP
   └─ 结果末尾追加 [dsh-proxy-switch] 警告段落（如果有）
 ```
@@ -60,16 +60,16 @@ DeepSeek Harness（DSH）的 `web_fetch` 在 TUN/fake-IP 代理客户端运行�
 
 ### 3.2 检测生命周期（v0.4）
 
-触发时机：插件启动；每次切换模式（`setMode` 提交后）；`upstreamSource` 改回 `auto`；探测失败（30 秒限频）；auto 模式下遇到 fake-IP 拒绝（10 秒限频）；`POST /detect`（不限频）。
+触发时机：插件启动；每次切换模式（`setMode` 提交后）；`upstreamSource` 改回 `auto`；探测失败（30 秒限频）；auto 模式下遇到 fake-IP 拒绝（10 秒限频）；`POST /detect`（2 秒冷却，超额返回 429）。
 
 `runDetection` 同一时间只运行一个实例。它在命令队列之外执行，只把最后一步写入放进队列；写入前会再检查一次 `upstreamSource === "auto"`，防止和用户的手动修改竞争。找到的地址先经过 `parseUpstream`，再写入 `state.json`，然后立刻探测一次。
 
 `detectUpstream` 的顺序：
 
-1. 系统代理和环境变量（显式配置）：只要对方返回 HTTP 状态行就接受，包括 4xx/5xx。
-2. 扫描 `COMMON_PORTS`：必须返回 200（可用）或 407（需要密码）才接受。
+1. 系统代理和环境变量（显式配置）：必须返回 200（可用）或 407（需要密码）。
+2. 扫描 `COMMON_PORTS`：同样必须返回 200 或 407。
 
-本插件自己的端口（`listenPort`、web_fetch 通道端口、global 通道端口）永远不会成为候选。
+本插件自己的端口（`listenPort`、web_fetch 通道端口、global 通道端口）永远不会成为候选；候选的主机名按 `localhost.`、IPv4-mapped IPv6、数字 IPv4 写法规范化，端口命中自身时还会解析主机名以排除 hosts 别名。检测提交前按当时的端口再检查一次。
 
 ### 3.3 状态与命令
 
@@ -102,45 +102,54 @@ DeepSeek Harness（DSH）的 `web_fetch` 在 TUN/fake-IP 代理客户端运行�
 6. **凭据不外泄**：API、警告、日志、诊断信息里一律经过 `maskUpstream`；无法解析的地址显示为 `<invalid-upstream>`。
 7. **转发路径上的任何异常都不能变成 Host 进程里未捕获的异常**：转发器所有入口都有 try/catch，并使用严格的 authority 解析。
 8. **检测和探测失败都不会抛出**：检测失败时 `detection.status = "none"`，探测失败时 `reachable = false`。
+9. **私有通道有每次启动的令牌**：HTTP 与 CONNECT 都携带随机令牌，转发器常量时间比较后才处理；令牌不会转发给上游，`/state` 不返回通道端口和 PID。
+10. **控制接口绑定 Host**：`Host` 必须等于 `webServer.getOrigin()` 的 host（关闭 DNS rebinding）；修改请求另外要求 `x-dsh-proxy-switch-request: 1`，浏览器跨站发不出该头。
+11. **停用即失效**：`disposed` 标志加实例令牌让迟到的请求体、检测、探测和预检不再写盘、监听或安装策略；disable→enable 后旧实例也不能覆盖新实例。
+12. **探测结果属于被测地址**：结果携带上游 URL；切换上游后旧结果作废，`auto` 回到"未知 → 直连"，直到新地址自己有结果。
+13. **不与自己递归**：上游指向任一已绑定通道（含 `localhost.`、IPv4-mapped、`127.1`、`2130706433` 等写法）时，手动设置被拒绝，拨号前再拒绝一次。
+14. **转发目标先做本地判定**：forward 模式下每个请求（重定向各自重新进入）先本地解析；解析出非公网且非 fake-IP 的地址就拒绝，另有本地名黑名单。这是缓解而非根治，见 6.A1。
+15. **状态与权限的提交点**：加载时修复存储目录/文件权限；保存时先给临时文件设 0600 再 rename，rename 是唯一的提交点。
+16. **检测程序路径固定**：`gsettings` 只从 `/usr/bin`、`/bin` 执行；`reg.exe` 只在 `SystemRoot` 匹配 `^[A-Za-z]:\\Windows$` 时使用，否则回退 `C:\\Windows`。
 
 ---
 
-## 6. 建议重点审查的风险（按优先级）
+## 6. 风险与当前状态（v0.4.0 修复后）
 
-下面是作者已知或怀疑的问题，**不是已修复清单**。请逐条判断是否成立、能否被利用、修复代价多大。
+每一条列出本轮审查（Astra，2026-11-04）之后的处理。A1 是**缓解**，A4、A6 仍有设计上的残余；其余已按条目落地。
 
-### A1（高）走代理时，主机名形式的内网目标不受检查
+### A1（高）走代理时，主机名形式的内网目标 —— 已缓解，不能根治
 
-`forwarder.js` 在 forward 模式下只拒绝**非公网 IP 字面量**（:355、:577）。主机名会原样交给上游代理去解析，例如 `http://localhost:8080/`、`http://127.0.0.1.nip.io/`、某个解析到 `10.x` 的内部域名。本机代理（Clash 等）会在本机解析并连接，也就是说，模型可以借 `web_fetch` 访问用户本机或局域网的服务（SSRF）。上游 `dsh-web-fetch-http` 在走代理时同样跳过了检查，所以这是"和原生行为一致"，但：
+forward 模式下每个请求在交给上游前于本机解析目标（重定向各自重新进入）：整组结果里只要有一个非公网且不是 fake-IP 的地址就拒绝；另外直接拒绝 `localhost`、`*.localhost`、单段主机名、`.local`/`.internal`/`.lan`/`.home.arpa`。
 
-- v0.4 把 `auto` 设为默认，代理在运行时 forward 是最常见的路径，影响面比 v0.3 大；
-- 在 TUN/fake-IP 环境下，本地 DNS 对所有域名都返回 198.18.x.x，没法在本地预先判断。
+**残余风险**：上游代理会再次解析同一主机名，上游的解析结果可能与本机不同（DNS rebinding、分流规则、上游侧 hosts）；fake-IP 环境下本机答案（`198.18.0.0/15`）无法判断真实目标；本机 DNS 失败或 2 秒超时时也放行。因此模型仍可能借上游触达内网。用户过去手写 `HTTP_PROXY` 时面对的是同一个风险，插件只是把常见情况挡在前面，不宣称已根治。README 的说明由主会话同步更新。
 
-可以讨论的缓解办法：拒绝 `localhost`、`*.localhost` 和单标签主机名；本地预解析的结果如果是非 fake-IP 的私网地址就拒绝；或者在 forward 模式下也要求整组解析结果为公网或 fake-IP。请评估误伤和绕过的可能。
+### A2（中）控制接口身份校验 —— 已修
 
-### A2（中）控制接口不经过 DSH 的身份校验
+`Host` 必须与 `webServer.getOrigin()` 的 host 一致（DNS rebinding 页面的 Host 是攻击者域名），修改请求另外要求 `x-dsh-proxy-switch-request: 1`（浏览器跨站发送需要 CORS 预检，本路由不授予）。原有的 loopback、`Sec-Fetch-Site`、`Origin`、`Content-Type` 检查保留。DSH 没有给插件路由的鉴权钩子，同机同用户的进程仍可直接调用，与文件权限属于同一信任级别。
 
-`/dsh-proxy-switch/*` 通过 `webServer.register({ kind: "prefix" })` 注册。实测 DSH Web 端口的 `/` 返回 401，而 `GET /dsh-proxy-switch/state` 不带令牌就能返回 200。`guard`（index.js :656）只检查 loopback、`Sec-Fetch-Site` 和 `Origin`，**没有 `Origin` 头的本机进程可以直接读取状态、切换模式、改写上游**，例如把 `web_fetch` 的流量导向一个恶意代理，以便查看明文 HTTP 或篡改内容。另外 guard 不校验 `Host` 头：DNS rebinding 页面发起的同源 GET 不带 `Origin`，可能读到状态（上游已脱敏，但能看到 `stats.lastHost`）。POST 会带 `Origin`，所以会被拒绝。请确认 DSH 是否提供插件路由可用的鉴权钩子。
+### A3（中）私有通道无认证 —— 已修
 
-### A3（中）私有 web_fetch 通道是 loopback 上没有认证的开放代理
+每次启动生成随机令牌，proxy-client 在 HTTP 请求头与 CONNECT 头里携带，转发器常量时间比较，令牌在转发前被剥离。`/state` 不再返回通道端口与 PID。全局通道无法携带令牌（其它模块经 policy 访问），其安全性依赖 loopback 绑定与 `web_fetch_only` 默认不开启。
 
-web_fetch 转发器监听 127.0.0.1 的随机端口，任何本机进程都能把它当 HTTP 代理用，而且走代理时它会替请求附上上游的 `Proxy-Authorization`。直连时仍然有 SSRF 检查。这是 v0.3 的 R11，v0.4 没有变化。
+### A4（中）检测自动采用系统代理/环境变量 —— 收窄
 
-### A4（中）检测会自动采用系统代理和环境变量指向的任何地址
+所有候选（系统、环境、扫描）都必须完成 CONNECT 并返回 200 或 407；普通 HTTP 服务器或任意状态行不再被采用。系统代理/环境变量仍按"用户配置即信任"处理：同一会话里的恶意程序仍可改系统代理设置，这与其本来就能做的其它事情同级。候选的服务身份无法在协议层验证（端口复用、验证后换主），这是残余风险。
 
-系统代理、`HTTPS_PROXY` 可以指向局域网甚至公网主机。`upstreamSource=auto` 时，插件会验证后直接采用，之后 web_fetch 的流量都会发往那里。这符合"用户配置了什么就用什么"的预期，但请评估：同一用户会话里的恶意程序能否通过修改系统代理设置来劫持 web_fetch（它本来就能做别的事，是否构成新的攻击面）？验证握手（`verifyHttpProxy`）会把环境变量里的凭据发给候选地址；扫描到的端口不带凭据。
+### A5（低）检测资源消耗 —— 已限频
 
-### A5（低）检测相关的资源消耗
+`POST /detect` 2 秒冷却（超额 429）；探测失败与 fake-IP 触发仍分别有 30 秒、10 秒限频；重叠调用仍由 `detectRunning` 合并。
 
-`POST /detect` 不限频，每次最多并发连接约 11 个本机端口，外加若干次 `CONNECT example.com:443`。结合 A2，本机进程可以反复触发。探测失败时的自动重测有 30 秒限频，fake-IP 拒绝触发的重测有 10 秒限频。
+### A6（低）auto 只看 TCP 可达 —— 部分修复
 
-### A6（低）auto 的判定依据只是 TCP 可达
+探测结果带上被测上游；切换地址后旧结果作废，必须真正探测新地址。真实请求收到 407 时记录 `probe.needsAuth`，界面沿用现有的"需要登录"锁展示。TCP 可达仍不等于代理可用：上游接受 TCP 但拒绝 CONNECT 时 `auto` 仍可能选 forward 并失败；按产品决定不做失败后自动改直连（fake-IP 下直连同样失败）。
 
-`probeUpstream` 只做 TCP connect。端口在监听但代理已经坏掉（例如订阅失效）时，auto 仍然会选 forward，导致 web_fetch 失败，而且不会自动回退到直连（设计上没有静默回退）。每次 web_fetch 之前会以 1 秒的新鲜度重新探测，以减少代理刚关闭时的误判。
+### A7（低）系统检测程序路径 —— 已修
 
-### A7（低）Linux 上的 `gsettings` 依赖 PATH
+`gsettings` 只从 `/usr/bin`、`/bin` 执行，不再搜索 PATH；`reg.exe` 只在 `SystemRoot` 匹配 `^[A-Za-z]:\Windows$` 时使用，否则回退 `C:\Windows`。所有调用仍是 `execFile` + 常量参数。
 
-macOS 的 `scutil` 和 Windows 的 `reg.exe` 用的是绝对路径（`reg.exe` 取自 `SystemRoot` 环境变量）；Linux 的 `gsettings` 从 PATH 查找。所有调用都使用 `execFile`，参数是常量，没有 shell。
+### F10（已知行为，不修）
+
+`global` 模式下修改监听端口或切回 `web_fetch_only` 会关闭旧 listener 并销毁在途连接（含 SSE、模型请求、隧道）。这只发生在用户主动改设置时，新端口绑定失败会回滚配置，但已经中断的请求无法恢复。记录为已知行为。
 
 ### 沿用 v0.3 的检查清单
 
@@ -152,20 +161,19 @@ macOS 的 `scutil` 和 Windows 的 `reg.exe` 用的是绝对路径（`reg.exe` �
 
 | 区域 | 测试 | 说明 |
 |---|---|---|
-| IP 分类、mapped/translated、NAT64、authority | `test/net-guard.test.mjs` | 纯函数 |
-| 转发器严格性、畸形 CONNECT、407、错误响应 | `test/forwarder.test.mjs` | 真实 socket |
-| 探测 | `test/probe.test.mjs` | |
-| 状态规范化、0.3→0.4 迁移、权限、脱敏 | `test/state.test.mjs` | |
+| IP 分类、mapped/translated、NAT64（含发现失败沿用缓存 F13）、authority 规范化（F2）、转发目标本地判定（F1）、loopback 识别（F9）、预检预算（F14） | `test/net-guard.test.mjs` | 纯函数 |
+| 转发器：严格性、畸形 CONNECT、407、错误响应、通道令牌（F4）、非标准 IPv4（F2）、本地名（F1）、出站连接清理（F8） | `test/forwarder.test.mjs` | 真实 socket |
+| 探测、探测结果绑定被测上游（F12） | `test/probe.test.mjs` | |
+| 状态规范化、0.3→0.4 迁移、脱敏（F15）、加载时修权限（F16）、提交顺序（F17） | `test/state.test.mjs` | |
 | 警告状态机、`effectiveModeOf` | `test/messages.test.mjs` | |
-| 检测：三平台解析、环境变量、`CONNECT` 分类、候选顺序、排除自身端口 | `test/detect.test.mjs` | 本机假服务器，不联网 |
-| 客户端：挂载点、渲染、横幅优先级、三段开关 | `test/client.test.mjs` | 用简化版 React 渲染 |
-| Host 集成：provider 接管、R1 隧道隔离、R3 NO_PROXY、R6 并发、R7 脱敏、R8 IPv6、**F：auto 与检测** | `scripts/e2e-host.mjs` | 真实 Cordis/WebRuntime/HttpFetchProvider，53 项 |
+| 检测：三平台解析、固定程序路径（F18）、环境变量、200/407 采用规则（F5）、自身端口别名（F9）、候选顺序 | `test/detect.test.mjs` | 本机假服务器，不联网 |
+| 客户端：挂载点、渲染、横幅优先级、三段开关、请求头 | `test/client.test.mjs` | 用简化版 React 渲染 |
+| 私有通道客户端：越界状态码（F6）、TLS 阶段的取消/截止/握手超时（F7） | `scripts/e2e-host.mjs` Phase P | 依赖 `dsh-web` 运行时，故不放进单元测试 |
+| Host 集成：provider 接管、R1 隧道隔离、R3 NO_PROXY、R6 并发、R7 脱敏、R8 IPv6、auto 与检测（F）、控制路由 Host/请求头（F3）、迟到工作（F11）、探测绑定（F12）、预检预算（F14）、脱敏（F15）、检测限频（A5）、通道令牌（F4）、自身上游（F9） | `scripts/e2e-host.mjs` | 真实 Cordis/WebRuntime/HttpFetchProvider，89 项 |
 | 真实上游 | `scripts/e2e-real.mjs` | 需要本机 HTTP 代理 |
 | web_fetch 警告文本 | `scripts/e2e-web-fetch-warning.mjs` | |
 
-最近一次结果（2026-11-04，macOS，Node 22）：单元测试 88/88，Host 集成 53/53，e2e-real 4/4（本机 1082 代理），警告文本 5 种组合全部符合预期。
-
----
+最近一次结果（2026-11-04 审查修复后，macOS，Node 22）：单元测试 105/105，Host 集成 89/89。`e2e-real.mjs` 与警告文本脚本本轮未重跑（前者需要本机 1082 代理）。
 
 ## 8. 客户端（非审查重点）
 
