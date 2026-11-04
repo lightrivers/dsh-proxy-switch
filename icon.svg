@@ -1,8 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Proxy switch">
-  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0f172a"/>
-  <path d="M18 32h13" stroke="#38bdf8" stroke-width="4" stroke-linecap="round"/>
-  <path d="M38 32h8" stroke="#94a3b8" stroke-width="4" stroke-linecap="round"/>
-  <circle cx="34.5" cy="32" r="7.5" fill="#38bdf8"/>
-  <path d="M14 46h36" stroke="#334155" stroke-width="3" stroke-linecap="round"/>
-  <path d="M23 18v-5M41 18v-5" stroke="#64748b" stroke-width="3" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 512 512" role="img" aria-label="Proxy Switch">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b8ff2"/>
+      <stop offset="1" stop-color="#2d5bd3"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <path d="M96 260H420" stroke="#fff" stroke-opacity=".75" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="92" cy="260" r="28" fill="#fff"/>
+  <path d="M256 150 330 177V250C330 304 300 342 256 362 212 342 182 304 182 250V177Z" fill="#fff"/>
+  <path d="M256 194 296 209V250C296 280 281 302 256 315 231 302 216 280 216 250V209Z" fill="none" stroke="#2d5bd3" stroke-width="15" stroke-linejoin="round"/>
+  <g fill="none" stroke="#fff" stroke-width="15">
+    <circle cx="420" cy="260" r="42" fill="#3e6ee0"/>
+    <ellipse cx="420" cy="260" rx="17" ry="42"/>
+    <path d="M378 260H462"/>
+  </g>
+  <circle cx="326" cy="166" r="24" fill="#22c55e" stroke="#fff" stroke-width="11"/>
 </svg>

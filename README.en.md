@@ -1,3 +1,5 @@
+<p align="center"><img src="icon.svg" width="96" alt=""></p>
+
 # Proxy Switch · dsh-proxy-switch
 
 [![test](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml/badge.svg)](https://github.com/lightrivers/dsh-proxy-switch/actions/workflows/test.yml)
