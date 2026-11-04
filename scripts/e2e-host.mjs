@@ -233,13 +233,56 @@ async function main() {
     check("A provider active", current.provider.status === "active", JSON.stringify(current.provider));
     check("A overrides the bundle's http default", ctx.web.config.fetchProvider.get() === "dsh-proxy-switch");
     check("A no global policy in web_fetch_only", current.policyInstalled === false && current.listening === false);
-    check("A private web_fetch channel bound", Number.isInteger(current.webFetchPort), String(current.webFetchPort));
+    const webFetchChannelPort = controls.webFetchPort();
+    check("A private web_fetch channel bound", Number.isInteger(webFetchChannelPort), String(webFetchChannelPort));
+    check(
+      "F4 /state exposes neither the private port nor the pid",
+      !("webFetchPort" in current) && !("pid" in current),
+      Object.keys(current).join(","),
+    );
     check("A fetchProvider points at the plugin", ctx.web.config.fetchProvider.get() === "dsh-proxy-switch");
     check("A process proxy env untouched", process.env.http_proxy === beforeEnv.http && process.env.no_proxy === beforeEnv.no);
 
     const forwarded = await ctx.web.fetch({ url: `http://8.8.8.8:${targetPort}/fwd` });
     check("A forward: web_fetch reaches the upstream", forwarded.statusCode === 200 && /UPSTREAM:/.test(forwarded.body.content));
     check("A forward: upstream saw the absolute URI", upstream.seen.some((entry) => entry.url === `http://8.8.8.8:${targetPort}/fwd`));
+
+    const unauthorized = await new Promise((resolve, reject) => {
+      const request = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: webFetchChannelPort,
+          method: "GET",
+          path: `http://8.8.8.8:${targetPort}/unauth`,
+          headers: { host: `8.8.8.8:${targetPort}` },
+        },
+        (response) => {
+          response.resume();
+          response.on("end", () =>
+            resolve({ status: response.statusCode, code: response.headers["x-dsh-proxy-switch-error"] }),
+          );
+        },
+      );
+      request.on("error", reject);
+      request.end();
+    });
+    check(
+      "F4 an untokened request to the private channel is refused",
+      unauthorized.status === 403 && unauthorized.code === "PROXY_SWITCH_CHANNEL_UNAUTHORIZED",
+      `${unauthorized.status} ${unauthorized.code}`,
+    );
+    check("F4 the unauthorized request never reached the upstream", upstream.seen.length === 1, String(upstream.seen.length));
+
+    const blockedLocal = await ctx.web.fetch({ url: "http://localhost:17432/admin" }).then(
+      () => ({ ok: true }),
+      (error) => ({ ok: false, code: error?.code }),
+    );
+    check(
+      "F1 a local-service name is refused in forward mode",
+      blockedLocal.ok === false && blockedLocal.code === "WEB_BLOCKED_URL",
+      String(blockedLocal.code),
+    );
+    check("F1 the local name never reached the upstream", upstream.seen.length === 1, String(upstream.seen.length));
 
     await controls.setMode("direct");
     const hitsBefore = upstream.seen.length;
@@ -1008,6 +1051,31 @@ async function main() {
       check("F15 a malformed state file never echoes its content", !text.includes("SECRET-FILE") && /invalid JSON/.test(text), controls.snapshot().notes.join(" | ").slice(0, 60));
       await fiber.dispose();
     }
+  }
+
+  // ---------- Phase H: self-upstream protection (F9) ----------
+  {
+    const listenPort = await freePort();
+    process.env.DSH_HOME = join(root, "home-h");
+    const { ctx, fiber, controls } = await createContext(runtime, pluginModule, {
+      mode: "forward",
+      scope: "global",
+      listenPort,
+      upstream: `http://127.0.0.1:${listenPort}`,
+      probeIntervalMs: 3000,
+      detectUpstream: async () => ({ found: null, tried: [] }),
+    }, { waitMs: 180 });
+    check("F9 the global channel bound for the check", controls.snapshot().listening === true);
+    const outcome = await ctx.web.fetch({ url: "http://8.8.8.8/x" }).then(
+      () => ({ ok: true }),
+      (error) => ({ ok: false, code: error?.code }),
+    );
+    check(
+      "F9 a self-referencing upstream is refused at dial time",
+      outcome.ok === false && outcome.code === "PROXY_SWITCH_SELF_UPSTREAM",
+      String(outcome.code),
+    );
+    await fiber.dispose();
   }
 
   await rm(root, { recursive: true, force: true });

@@ -438,3 +438,184 @@ test("close() destroys live tunnels and releases the listener", async (t) => {
   assert.equal(forwarder.port, null);
   socket.destroy();
 });
+
+function proxyGetWithHeaders(port, absoluteUrl, headers) {
+  return new Promise((resolve, reject) => {
+    const request = http.request({ host: "127.0.0.1", port, method: "GET", path: absoluteUrl, headers }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () =>
+        resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks).toString("utf8") }),
+      );
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+function connectWithHeaders(port, authority, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect({ host: "127.0.0.1", port }, () => {
+      const lines = [`CONNECT ${authority} HTTP/1.1`, `Host: ${authority}`, ...Object.entries(headers).map(([n, v]) => `${n}: ${v}`)];
+      socket.write(`${lines.join("\r\n")}\r\n\r\n`);
+    });
+    let buffered = "";
+    const onData = (chunk) => {
+      buffered += chunk.toString("latin1");
+      if (buffered.includes("\r\n\r\n")) {
+        socket.off("data", onData);
+        socket.destroy();
+        resolve(buffered);
+      }
+    };
+    socket.on("data", onData);
+    socket.on("error", reject);
+    setTimeout(() => reject(new Error("connect timeout")), 4_000).unref();
+  });
+}
+
+test("F4: the private channel requires its token and never forwards it", async (t) => {
+  const seen = [];
+  const upstream = http.createServer((request, response) => {
+    seen.push({ headers: request.headers });
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end("token-ok");
+  });
+  const upstreamPort = await startServer(upstream);
+  t.after(() => stop(upstream));
+
+  const forwarder = createForwarder({
+    getMode: () => "forward",
+    getUpstream: () => new URL(`http://127.0.0.1:${upstreamPort}`),
+    authToken: "secret-channel-token",
+  });
+  await forwarder.listen(0);
+  t.after(() => forwarder.close());
+
+  const missing = await proxyGet(forwarder.port, "http://example.com/");
+  assert.equal(missing.status, 403);
+  assert.equal(missing.headers["x-dsh-proxy-switch-error"], "PROXY_SWITCH_CHANNEL_UNAUTHORIZED");
+  const wrong = await proxyGetWithHeaders(forwarder.port, "http://example.com/", { "x-dsh-proxy-switch-token": "nope" });
+  assert.equal(wrong.status, 403);
+  assert.equal(seen.length, 0, "an unauthorized request must never reach the upstream");
+
+  const missingConnect = await connectWithHeaders(forwarder.port, "example.com:443");
+  assert.match(missingConnect, /^HTTP\/1\.1 403/u);
+  assert.equal(seen.length, 0);
+
+  const ok = await proxyGetWithHeaders(forwarder.port, "http://example.com/", { "x-dsh-proxy-switch-token": "secret-channel-token" });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body, "token-ok");
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].headers["x-dsh-proxy-switch-token"], void 0, "the token must not be forwarded upstream");
+});
+
+test("F2: non-standard IPv4 CONNECT spellings are normalized and refused before dialling", async (t) => {
+  let seen = 0;
+  const upstream = http.createServer((request, response) => {
+    seen += 1;
+    response.end();
+  });
+  const upstreamPort = await startServer(upstream);
+  t.after(() => stop(upstream));
+
+  const forwarder = createForwarder({
+    getMode: () => "forward",
+    getUpstream: () => new URL(`http://127.0.0.1:${upstreamPort}`),
+    rejectNonPublicIpLiteral: true,
+    authToken: "t2ken",
+  });
+  await forwarder.listen(0);
+  t.after(() => forwarder.close());
+
+  for (const authority of ["2130706433:80", "0177.0.0.1:80", "0x7f000001:80", "127.1:80"]) {
+    const reply = await connectWithHeaders(forwarder.port, authority, { "x-dsh-proxy-switch-token": "t2ken" });
+    assert.match(reply, /^HTTP\/1\.1 403/u, `${authority} must be refused`);
+  }
+  assert.equal(seen, 0, "no non-standard loopback spelling may reach the upstream");
+});
+
+test("F1 mitigation: forward mode refuses local names before contacting the upstream", async (t) => {
+  let seen = 0;
+  const upstream = http.createServer((request, response) => {
+    seen += 1;
+    response.end("should-not-happen");
+  });
+  const upstreamPort = await startServer(upstream);
+  t.after(() => stop(upstream));
+
+  const forwarder = createForwarder({
+    getMode: () => "forward",
+    getUpstream: () => new URL(`http://127.0.0.1:${upstreamPort}`),
+    rejectNonPublicIpLiteral: true,
+  });
+  await forwarder.listen(0);
+  t.after(() => forwarder.close());
+
+  const response = await proxyGet(forwarder.port, "http://localhost:8080/admin");
+  assert.equal(response.status, 403);
+  assert.equal(response.headers["x-dsh-proxy-switch-error"], "WEB_BLOCKED_URL");
+  assert.equal(seen, 0);
+});
+
+test("F8: a client that leaves before the response head closes the outbound request", async (t) => {
+  let accepted = 0;
+  let closed = 0;
+  const silent = net.createServer((socket) => {
+    accepted += 1;
+    socket.on("close", () => {
+      closed += 1;
+    });
+    socket.on("error", () => {});
+    socket.on("data", () => {});
+  });
+  const silentPort = await startServer(silent);
+  t.after(() => stop(silent));
+
+  const forwarder = createForwarder({
+    getMode: () => "forward",
+    getUpstream: () => new URL(`http://127.0.0.1:${silentPort}`),
+  });
+  await forwarder.listen(0);
+  t.after(() => forwarder.close());
+
+  const client = net.connect({ host: "127.0.0.1", port: forwarder.port }, () => {
+    client.write("GET http://example.com/slow HTTP/1.1\r\nHost: example.com\r\n\r\n");
+  });
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  client.destroy();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(accepted, 1);
+  assert.equal(closed, 1, "the upstream socket must be closed with the client");
+});
+
+test("F8: close() destroys an outbound request still waiting for a response head", async (t) => {
+  let accepted = 0;
+  let closed = 0;
+  const silent = net.createServer((socket) => {
+    accepted += 1;
+    socket.on("close", () => {
+      closed += 1;
+    });
+    socket.on("error", () => {});
+    socket.on("data", () => {});
+  });
+  const silentPort = await startServer(silent);
+
+  const forwarder = createForwarder({
+    getMode: () => "forward",
+    getUpstream: () => new URL(`http://127.0.0.1:${silentPort}`),
+  });
+  await forwarder.listen(0);
+  const client = net.connect({ host: "127.0.0.1", port: forwarder.port }, () => {
+    client.write("GET http://example.com/pending HTTP/1.1\r\nHost: example.com\r\n\r\n");
+  });
+  client.on("error", () => {});
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  await forwarder.close();
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  client.destroy();
+  await stop(silent);
+  assert.equal(accepted, 1);
+  assert.equal(closed, 1, "teardown must destroy a pending outbound dial");
+});

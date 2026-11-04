@@ -3,10 +3,14 @@ import assert from "node:assert/strict";
 
 import {
   classifyAddress,
+  discoverNat64Prefixes,
   formatAuthority,
   isFakeIp,
+  isLoopbackAddress,
   judgeAddresses,
+  judgeForwardTarget,
   mappedIpv4,
+  normalizeIpv4Host,
   parseAuthority,
   resolveDirectTarget,
   resolveHost,
@@ -307,4 +311,91 @@ test("F14: an aborted signal stops waiting for resolution", async () => {
   const verdict = await verdictPromise;
   assert.equal(verdict.ok, false);
   assert.equal(verdict.code, "WEB_ABORTED");
+});
+
+test("F2: non-standard IPv4 authority spellings are normalized before classification", () => {
+  for (const [input, expected] of [
+    ["2130706433:80", "127.0.0.1"],
+    ["0177.0.0.1:80", "127.0.0.1"],
+    ["0x7f000001:80", "127.0.0.1"],
+    ["127.1:80", "127.0.0.1"],
+    ["example.com:80", "example.com"],
+    ["[::1]:443", "::1"],
+  ]) {
+    const parsed = parseAuthority(input);
+    assert.equal(parsed.ok, true, `${input} must parse`);
+    assert.equal(parsed.host, expected, `${input} must normalize`);
+  }
+  assert.equal(normalizeIpv4Host("1.2.3.4"), "1.2.3.4");
+  assert.equal(normalizeIpv4Host("1.2.3.256"), null);
+  assert.equal(normalizeIpv4Host("example.com"), null);
+  assert.equal(normalizeIpv4Host("1.2.3.4.5"), null);
+});
+
+test("F1 mitigation: forward targets that resolve private are refused; fake-IP and public pass", async () => {
+  const answers = (addresses) => async () => addresses;
+  const privateVerdict = await judgeForwardTarget("intranet.example", {
+    lookupFn: answers([{ address: "10.0.0.5", family: 4 }]),
+  });
+  assert.equal(privateVerdict.ok, false);
+  assert.equal(privateVerdict.code, "WEB_BLOCKED_URL");
+
+  const fakeVerdict = await judgeForwardTarget("site.example", {
+    lookupFn: answers([{ address: "198.18.0.5", family: 4 }]),
+  });
+  assert.equal(fakeVerdict.ok, true, "a fake-IP answer cannot identify the real target");
+
+  const mixedVerdict = await judgeForwardTarget("site.example", {
+    lookupFn: answers([
+      { address: "93.184.216.34", family: 4 },
+      { address: "192.168.1.10", family: 4 },
+    ]),
+  });
+  assert.equal(mixedVerdict.ok, false, "one private answer is enough");
+
+  const publicVerdict = await judgeForwardTarget("site.example", {
+    lookupFn: answers([{ address: "93.184.216.34", family: 4 }]),
+  });
+  assert.equal(publicVerdict.ok, true);
+
+  const failingLookup = async () => {
+    const error = new Error("ENOTFOUND");
+    error.code = "ENOTFOUND";
+    throw error;
+  };
+  assert.equal((await judgeForwardTarget("public.example", { lookupFn: failingLookup })).ok, true);
+
+  for (const name of ["localhost", "localhost.", "a.localhost", "printer.local", "api.internal", "nas.lan", "router.home.arpa", "intranet"]) {
+    const verdict = await judgeForwardTarget(name, { lookupFn: failingLookup });
+    assert.equal(verdict.ok, false, `${name} must be refused without a lookup`);
+  }
+});
+
+test("F9 helper: loopback names are recognized in every spelling", () => {
+  for (const host of ["localhost", "localhost.", "app.localhost", "127.0.0.1", "127.1", "2130706433", "[::1]", "[::ffff:127.0.0.1]"]) {
+    assert.equal(isLoopbackAddress(host), true, host);
+  }
+  for (const host of ["10.0.0.1", "example.com", "1.1.1.1", "[::ffff:8.8.8.8]"]) {
+    assert.equal(isLoopbackAddress(host), false, host);
+  }
+});
+
+test("F13: a failed NAT64 discovery reuses the last successful prefix set", async () => {
+  const cache = { prefixes: null, at: 0 };
+  const discoveryAnswers = [{ address: "2001:4860:64::c000:aa", family: 6 }];
+  const targetAnswers = [{ address: "2001:4860:64::a00:1", family: 6 }];
+  const working = async (name) => (name === "ipv4only.arpa" ? discoveryAnswers : targetAnswers);
+  const cached = await discoverNat64Prefixes({ lookupFn: working, cache });
+  assert.ok(cached.length > 0, "the /96 prefix must be discovered");
+
+  const failing = async (name) => {
+    if (name === "ipv4only.arpa") throw Object.assign(new Error("dns down"), { code: "EAI_AGAIN" });
+    return targetAnswers;
+  };
+  const firstRun = await resolveDirectTarget("v6.example", { lookupFn: working, nat64Cache: cache });
+  assert.equal(firstRun.ok, false);
+  assert.match(firstRun.message, /nat64/u);
+  const afterFailure = await resolveDirectTarget("v6.example", { lookupFn: failing, nat64Cache: cache });
+  assert.equal(afterFailure.ok, false, "the cached prefix still refuses the embedded private IPv4");
+  assert.match(afterFailure.message, /nat64/u);
 });
