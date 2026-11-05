@@ -40,7 +40,7 @@ Why it happens: a proxy in TUN mode answers every DNS lookup with a "fake" addre
 
 | Item | Requirement |
 |---|---|
-| DeepSeek Harness | Desktop 0.2.1; the 0.2.2 preview has not been tested |
+| DeepSeek Harness | Desktop 0.2.1 and 0.2.2 (0.2.2-rc.1 tested) |
 | System | macOS (fully verified); Windows and Linux (supported in code, not yet fully verified on real machines) |
 | Proxy | A local HTTP proxy or "mixed port" (Clash / mihomo / Clash Verge, Surge, v2rayN all provide one). SOCKS and PAC are not supported |
 | License | [MIT](LICENSE) |
@@ -205,6 +205,7 @@ Runtime packages must stay in `peerDependencies`, never `dependencies`; a second
 
 ## Changelog
 
+- **0.4.4**: Compatible with DeepSeek Harness 0.2.2 (new web_fetch interface); fixes page fetches failing on the 0.2.2 preview.
 - **0.4.3**: Fixed proxy mode refusing some proxies' IPv6-form fake-IP answers (for example `::ffff:0:c612:55`); the npm package no longer ships the test scripts.
 - **0.4.0**: Added the **Auto** route and automatic proxy detection (system proxy, environment variables, common ports); redesigned the panel and the compact sidebar pill, with a route diagram that marks where a problem is; hardened after an adversarial security review (private-channel token, `Host` check on the control routes, a local target check in proxy mode, HTTPS handshake timeouts and more; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
 - **0.3.0**: `web_fetch` moved to the plugin's own private channel; global network settings are no longer changed.

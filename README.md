@@ -45,7 +45,7 @@
 
 | 项目 | 要求 |
 |---|---|
-| DeepSeek Harness | 桌面版 0.2.1；0.2.2 预览版尚未测试 |
+| DeepSeek Harness | 桌面版 0.2.1、0.2.2（0.2.2-rc.1 已测） |
 | 系统 | macOS（已完整验证）；Windows、Linux（代码已支持，尚未在真机上完整验证） |
 | 代理 | 本机的 HTTP 代理或"混合端口"（Clash / mihomo / Clash Verge、Surge、v2rayN 等都有）。不支持 SOCKS、PAC |
 | 许可证 | [MIT](LICENSE) |
@@ -210,6 +210,7 @@ node scripts/e2e-web-fetch-warning.mjs     # web_fetch 结果附带的警告文�
 
 ## 更新记录
 
+- **0.4.4**：兼容 DeepSeek Harness 0.2.2（新版 web_fetch 接口），修复在 0.2.2 预览版上抓网页报错。
 - **0.4.3**：修复部分代理返回 IPv6 形式的 fake-IP（如 `::ffff:0:c612:55`）时被转发模式误拒；npm 包不再包含测试脚本。
 - **0.4.0**：新增「自动」模式和代理自动检测（系统代理、环境变量、常用端口）；重做面板和侧栏小按钮，线路图直接标出问题在哪；按对抗性安全审查加固（私有通道令牌、控制接口 Host 校验、走代理时的本地目标检查、HTTPS 握手超时等，详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)）。
 - **0.3.0**：`web_fetch` 改用插件自己的私有通道，不再改全局网络设置。

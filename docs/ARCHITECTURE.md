@@ -24,7 +24,8 @@ DeepSeek Harness（DSH）的 `web_fetch` 在 TUN/fake-IP 代理客户端运行�
 | 文件 | 职责 | 关键入口 |
 |---|---|---|
 | `lib/index.js` | Host 插件主体：状态、命令队列、provider 接管、检测生命周期、Web 路由、`tools/execute` 包装、teardown | `apply()`；`runDetection()` 约在 :428；路由 guard 约在 :656；`tools/execute` 约在 :727 |
-| `lib/fetch-provider.js` | 继承运行时的 `HttpFetchProvider`，只覆盖 `requestOnce`，把请求发到私有通道 | `createProxySwitchProvider` |
+| `lib/fetch-provider.js` | 继承运行时的 `HttpFetchProvider`，只覆盖 `requestOnce`，把请求发到私有通道；返回值形状按基类契约适配（见下一行） | `createProxySwitchProvider` |
+| `lib/provider-contract.js` | 判定运行时 `dsh-web-fetch-http` 的 `requestOnce` 契约：0.2.1 及更早要 `{ response, close }`，0.2.2 起直接要 `Response`；后者把释放挂在 body 读完/cancel/出错上 | `contractOf`、`shapeRequestOnceResult` |
 | `lib/proxy-client.js` | 私有通道的客户端：HTTP 走绝对 URI，HTTPS 走 CONNECT 再接 TLS；携带通道令牌，中止/截止贯穿 TLS 阶段，把转发器的错误码映射回 `WebError` | `requestThroughLocalProxy` |
 | `lib/forwarder.js` | 只监听 127.0.0.1 的严格转发器（web_fetch 一个实例，`global` 一个实例），校验通道令牌、拒绝自身上游、跟踪并销毁所有出站连接，按 `getMode()` 选择上游或直连 | `forwardHttp`，`directHttp`，`connectViaUpstream` |
 | `lib/net-guard.js` | SSRF 判定：按字节解析 IP、mapped/translated/compatible、NAT64（RFC 7050/6052）、authority 严格解析 | `judgeAddresses` :473，`resolveDirectTarget`，`parseAuthority` |
@@ -167,6 +168,7 @@ forward 模式下每个请求在交给上游前于本机解析目标（重定向
 | 转发器：严格性、畸形 CONNECT、407、错误响应、通道令牌（F4）、非标准 IPv4（F2）、本地名（F1）、出站连接清理（F8） | `test/forwarder.test.mjs` | 真实 socket |
 | 探测、探测结果绑定被测上游（F12） | `test/probe.test.mjs` | |
 | 状态规范化、0.3→0.4 迁移、脱敏（F15）、加载时修权限（F16）、提交顺序（F17） | `test/state.test.mjs` | |
+| `requestOnce` 双契约：基类源码判定、版本回退、两种返回形状、body 读完/cancel/出错释放 | `test/fetch-provider-contract.test.mjs` | 纯函数 |
 | 警告状态机、`effectiveModeOf` | `test/messages.test.mjs` | |
 | 检测：三平台解析、固定程序路径（F18）、环境变量、200/407 采用规则（F5）、自身端口别名（F9）、候选顺序 | `test/detect.test.mjs` | 本机假服务器，不联网 |
 | 客户端：挂载点、渲染、横幅优先级、三段开关、请求头 | `test/client.test.mjs` | 用简化版 React 渲染 |
@@ -175,7 +177,7 @@ forward 模式下每个请求在交给上游前于本机解析目标（重定向
 | 真实上游 | `scripts/e2e-real.mjs` | 需要本机 HTTP 代理 |
 | web_fetch 警告文本 | `scripts/e2e-web-fetch-warning.mjs` | |
 
-最近一次结果（2026-11-04 审查修复后，macOS，Node 22）：单元测试 105/105，Host 集成 89/89。`e2e-real.mjs` 与警告文本脚本本轮未重跑（前者需要本机 1082 代理）。
+最近一次结果（2026-11-05，macOS，Node 22）：单元测试 114/114；Host 集成在 DSH 0.2.1 与 0.2.2-rc.1 两套运行时的解包上分别全过。两套运行时下的警告文本脚本同样通过；`e2e-real.mjs` 本轮未重跑（需要本机 1082 代理）。
 
 ## 8. 客户端（非审查重点）
 

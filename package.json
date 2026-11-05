@@ -1,6 +1,6 @@
 {
   "name": "@lightrivers/dsh-proxy-switch",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "type": "module",
   "description": "Fixes DeepSeek Harness web_fetch behind Clash/Surge/TUN fake-IP proxies: auto-detects your local HTTP proxy, routes web_fetch through it while it runs and directly when it does not, with a sidebar switch and warnings in web_fetch results.",
   "main": "lib/index.js",
@@ -46,10 +46,10 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-http-proxy": ">=0.2.0-rc.1 <0.3.0-0",
-    "@deepseek-ai/dsh-launch-environment": ">=0.2.0-rc.1 <0.3.0-0",
-    "@deepseek-ai/dsh-web-fetch-http": ">=0.2.0-rc.1 <0.3.0-0",
-    "@deepseek-ai/dsh-web": ">=0.2.0-rc.1 <0.3.0-0"
+    "@deepseek-ai/dsh-http-proxy": ">=0.2.0-0 <0.3.0-0 || >=0.2.1-0 <0.3.0-0 || >=0.2.2-0 <0.3.0-0",
+    "@deepseek-ai/dsh-launch-environment": ">=0.2.0-0 <0.3.0-0 || >=0.2.1-0 <0.3.0-0 || >=0.2.2-0 <0.3.0-0",
+    "@deepseek-ai/dsh-web-fetch-http": ">=0.2.0-0 <0.3.0-0 || >=0.2.1-0 <0.3.0-0 || >=0.2.2-0 <0.3.0-0",
+    "@deepseek-ai/dsh-web": ">=0.2.0-0 <0.3.0-0 || >=0.2.1-0 <0.3.0-0 || >=0.2.2-0 <0.3.0-0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-http-proxy": {
