@@ -69,9 +69,10 @@ test("IPv4-mapped IPv6 is judged as the IPv4 destination", () => {
   assert.equal(mappedIpv4("0:0:0:0:0:ffff:7f00:1"), "127.0.0.1");
 
   // IPv4-translated (RFC 6145) is blocked as a class, matching ipaddr.js's `rfc6145`
-  // range; it is not silently treated as the embedded IPv4.
-  assert.equal(mappedIpv4("::ffff:0:c612:252"), null);
-  assert.equal(classifyAddress("::ffff:0:c612:252").reason, "ipv4-translated");
+  // range; it is not silently treated as the embedded IPv4 (only a fake-IP inside it is
+  // identified, see the dedicated test below).
+  assert.equal(mappedIpv4("::ffff:0:c0a8:101"), null);
+  assert.equal(classifyAddress("::ffff:0:c0a8:101").reason, "ipv4-translated");
   assert.equal(classifyAddress("::ffff:0:0808:0808").public, false);
 
   // Deprecated IPv4-compatible `::a.b.c.d` is judged by its embedded IPv4.
@@ -191,6 +192,32 @@ test("addresses just outside the new ranges stay public", () => {
   for (const address of cases) {
     assert.equal(classifyAddress(address).public, true, `${address} should be public`);
   }
+});
+
+test("an IPv4-translated fake-IP answer is accepted in forward mode but still refused directly", async () => {
+  for (const address of ["::ffff:0:c612:55", "::ffff:0:198.18.0.85"]) {
+    const verdict = classifyAddress(address);
+    assert.equal(verdict.reason, "fake-ip", `${address} reason`);
+    assert.equal(verdict.translated, true, `${address} must keep the translated marker`);
+    assert.equal(isFakeIp(address), true, `${address} isFakeIp`);
+    const forward = await judgeForwardTarget("ipweb.cc", { lookupFn: async () => [{ address, family: 6 }] });
+    assert.equal(forward.ok, true, `${address} must pass the forward-mode check`);
+  }
+
+  for (const address of ["::ffff:0:a00:1", "::ffff:0:808:808"]) {
+    assert.equal(classifyAddress(address).reason, "ipv4-translated", address);
+    const forward = await judgeForwardTarget("example.com", { lookupFn: async () => [{ address, family: 6 }] });
+    assert.equal(forward.ok, false, `${address} must stay refused in forward mode`);
+    assert.equal(forward.code, "WEB_BLOCKED_URL");
+  }
+
+  // Direct mode refuses a fake-IP destination whatever spelling it arrives in.
+  const direct = await resolveDirectTarget("ipweb.cc", {
+    lookupFn: async () => [{ address: "::ffff:0:c612:55", family: 6 }],
+    nat64Prefixes: [],
+  });
+  assert.equal(direct.ok, false);
+  assert.equal(direct.code, "PROXY_SWITCH_FAKE_IP");
 });
 
 test("new ranges are recognised through IPv4-mapped forms", () => {

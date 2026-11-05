@@ -26,6 +26,7 @@ This plugin is for you if you have seen any of these:
 
 - `web_fetch` fails with **`non-public IP address`**, or says a site resolved to **`198.18.x.x`**;
 - your proxy app runs in **TUN / enhanced mode / fake-IP**, and every page fetch fails;
+- you only turned on the proxy app's **system proxy** without TUN: DSH does not read the system proxy, so `web_fetch` cannot open sites that need the proxy;
 - you hard-coded `HTTP_PROXY` into `~/.dsh/.env` to make `web_fetch` work, and now **even chatting with the model breaks** whenever the proxy is off;
 - you edit configuration every time you turn the proxy on or off.
 
@@ -33,11 +34,13 @@ This plugin is for you if you have seen any of these:
 
 Why it happens: a proxy in TUN mode answers every DNS lookup with a "fake" address in `198.18.0.0/15`. When `web_fetch` connects directly, its safety check refuses private addresses, so the request is rejected. Hard-coding the proxy fixes that, until the proxy is turned off and nothing connects at all. This plugin gives `web_fetch` its own switchable route. **By default, model calls and other features are not affected.**
 
+> Since DeepSeek Harness 0.2.2, `web_fetch` no longer refuses fake-IP and private addresses, so with TUN alone the new version fetches pages without this plugin. The plugin still fits users who only enable the system proxy and users who want `web_fetch` to switch automatically with the proxy; in direct mode it still allows public addresses only, which keeps requests away from services on this machine and the local network.
+
 ## Requirements
 
 | Item | Requirement |
 |---|---|
-| DeepSeek Harness | Desktop 0.2.x |
+| DeepSeek Harness | Desktop 0.2.1; the 0.2.2 preview has not been tested |
 | System | macOS (fully verified); Windows and Linux (supported in code, not yet fully verified on real machines) |
 | Proxy | A local HTTP proxy or "mixed port" (Clash / mihomo / Clash Verge, Surge, v2rayN all provide one). SOCKS and PAC are not supported |
 | License | [MIT](LICENSE) |
@@ -202,6 +205,7 @@ Runtime packages must stay in `peerDependencies`, never `dependencies`; a second
 
 ## Changelog
 
+- **0.4.3**: Fixed proxy mode refusing some proxies' IPv6-form fake-IP answers (for example `::ffff:0:c612:55`); the npm package no longer ships the test scripts.
 - **0.4.0**: Added the **Auto** route and automatic proxy detection (system proxy, environment variables, common ports); redesigned the panel and the compact sidebar pill, with a route diagram that marks where a problem is; hardened after an adversarial security review (private-channel token, `Host` check on the control routes, a local target check in proxy mode, HTTPS handshake timeouts and more; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
 - **0.3.0**: `web_fetch` moved to the plugin's own private channel; global network settings are no longer changed.
 
